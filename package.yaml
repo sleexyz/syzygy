@@ -1,0 +1,26 @@
+name:                syzygy
+version:             0.1.0.0
+homepage:            https://github.com/sleexyz/syzygy#readme
+license:             BSD3
+author:              Sean Lee
+maintainer:          freshdried@gmail.com
+copyright:           BSD3
+category:            Other
+extra-source-files:
+  - README.md
+
+dependencies:
+  - base >= 4.7 && < 5
+  - profunctors
+
+library:
+  source-dirs: src
+  main: Syzygy.hs
+
+tests:
+  syzygy-test:
+    main: Spec.hs
+    source-dirs: test
+    dependencies:
+      - syzygy
+      - hspec
