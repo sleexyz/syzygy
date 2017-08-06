@@ -9,7 +9,6 @@ module SyzygySpec where
 
 import Test.Hspec
 import Syzygy
-import Data.Monoid
 import Test.QuickCheck
 import Data.Function ((&))
 import Data.Monoid ((<>))
@@ -36,10 +35,10 @@ spec = do
         pat (MkInterval 0.5 1.5) `shouldBe` [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ())]
         pat (MkInterval 0.5 2.5) `shouldBe` [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ()), MkSignalEvent (MkInterval 2 3) (pure ())]
 
-      it "starts of events should be less than query ends" $ property $ \query@MkInterval{start, end} ->
+      it "starts of events should be less than query ends" $ property $ \query@MkInterval{end} ->
           [] == filter (\MkSignalEvent { support = MkInterval s _ } -> s >= end) (pat query)
 
-      it "ends of events should be greater than query starts" $ property $ \query@MkInterval{start, end} ->
+      it "ends of events should be greater than query starts" $ property $ \query@MkInterval{start} ->
           [] == filter (\MkSignalEvent { support = MkInterval _ e } -> e <= start) (pat query)
 
       describe "when pruned" $ do
