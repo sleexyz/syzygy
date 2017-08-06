@@ -2,39 +2,74 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE DeriveFunctor #-}
 
 module Syzygy where
 
 import Data.Profunctor
 import Data.Function ((&))
+import Data.Monoid
+import qualified Test.QuickCheck as QC
 
 type Time = Rational
-type Interval = (Time, Time) -- left-closed and right-open intervals
+
+-- | left-closed and right-open intervals
+data Interval = MkInterval
+  { start :: Time
+  , end :: Time
+  }
+  deriving (Eq, Show)
+
+data Event a = MkEvent
+  { query :: Interval
+  , payload :: a
+  } deriving (Eq, Show, Functor)
+
 data SignalEvent a = MkSignalEvent
   { support :: Interval
-  , event :: a
+  , event :: Event a
   } deriving (Eq, Show)
+
 type Signal a = Interval -> [SignalEvent a] -- A signal is defined by the "integral" of a sampling function
 
+instance Monoid Interval where
+  MkInterval startX endX `mappend` MkInterval startY endY =
+    let lengthX = endX - startX
+    in MkInterval (startX + lengthX * startY) (startX + lengthX * endY)
+  mempty = MkInterval 0 1
+
+instance QC.Arbitrary Interval where
+  arbitrary = getInterval <$> QC.arbitrary
+    where
+      getInterval :: (QC.NonNegative Rational, QC.NonNegative Rational) -> Interval
+      getInterval (QC.NonNegative start, QC.NonNegative dur) = MkInterval {start, end = start + dur}
+
+instance Applicative Event where
+  pure x = MkEvent { query = MkInterval 0 1, payload = x}
+  MkEvent {query = queryF, payload = f} <*> MkEvent {query = queryX, payload = x} =
+    MkEvent { query = queryF <> queryX, payload = f x }
+
+
 embed :: a -> Signal a
-embed x (queryStart, queryEnd) = do
+embed x (MkInterval queryStart queryEnd) = do
   let
     start = (fromIntegral @Integer) . floor $ queryStart
     end = (fromIntegral @Integer) . ceiling $ queryEnd
   beat <- [start..end - 1]
-  return MkSignalEvent { support = (beat, beat + 1), event = x }
+  return MkSignalEvent { support = MkInterval beat (beat + 1), event = pure x }
 
 
 prune :: Signal a -> Signal a
-prune signal (queryStart, queryEnd) = filter inBounds $ signal (queryStart, queryEnd)
+prune signal (MkInterval queryStart queryEnd) = filter inBounds $ signal (MkInterval queryStart queryEnd)
   where
-    inBounds MkSignalEvent {support = (s, _)} = s >= queryStart && s < queryEnd
+    inBounds MkSignalEvent {support = MkInterval{start}} = start >= queryStart && start < queryEnd
 
 -- | shift forward in time
 shift :: Time -> Signal a -> Signal a
 shift t f = f
-  & lmap (\(start, end) -> (start - t, end - t))
-  & rmap (\res -> [MkSignalEvent { support = (start + t, end + t), event = x } | MkSignalEvent { support = (start, end), event = x } <- res])
+  & lmap (\MkInterval{start, end} -> MkInterval { start = start - t, end = end - t })
+  & rmap (\res -> [MkSignalEvent { support = MkInterval (start + t) (end + t), event = x } | MkSignalEvent { support = MkInterval{start, end}, event = x } <- res])
+  -- FIXME: clean up
 
 stack :: [Signal a] -> Signal a
 stack sigs query = do
@@ -50,14 +85,15 @@ interleave sigs query = do
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
 fast n sig = sig
-  & lmap (\(start, end) -> (start * n, end * n))
-  & rmap (\res -> [MkSignalEvent { support = (start / n, end / n), event = x } | MkSignalEvent { support = (start, end), event = x } <- res])
+  & lmap (\MkInterval{start, end} -> MkInterval { start = start * n, end = end * n })
+  & rmap (\res -> [MkSignalEvent { support = MkInterval (start / n) (end / n), event = x } | MkSignalEvent { support = MkInterval{start, end}, event = x } <- res])
+  -- FIXME: clean up
 
-ap ::  Signal (a -> b) -> Signal a -> Signal b
-ap sigF (prune -> sigX) = prune $ \query0 ->  do
-  MkSignalEvent { support = query1, event = f } <- sigF query0
-  MkSignalEvent { support = query2, event = x } <- sigX query1
-  return MkSignalEvent { support = query2, event = f x }
+-- ap ::  Signal (a -> b) -> Signal a -> Signal b
+-- ap sigF (prune -> sigX) = prune $ \query0 ->  do
+--   MkSignalEvent { support = query1, event = f } <- sigF query0
+--   MkSignalEvent { support = query2, event = x } <- sigX query1
+--   return MkSignalEvent { support = query2, event = f x }
 
 -- A Behavior is a continuous function that is defined at every point in the sampling space
 -- type Behavior a = forall b. (Signal (a -> b) -> Signal b)

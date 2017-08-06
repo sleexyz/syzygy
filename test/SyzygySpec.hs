@@ -3,6 +3,7 @@
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
 module SyzygySpec where
 
@@ -11,98 +12,99 @@ import Syzygy
 import Data.Monoid
 import Test.QuickCheck
 import Data.Function ((&))
+import Data.Monoid ((<>))
 
 spec :: Spec
 spec = do
   describe "Syzygy" $ do
+    describe "Interval" $ do
+      describe "Monoid Instance" $ do
+        it "obeys the associative law" $ property $ \(x :: Interval, y :: Interval, z :: Interval) ->
+          (x <> (y <> z)) ==  ((x <> y) <> z)
+
+        it "obeys the left unital law" $ property $ \(x :: Interval) ->
+          (mempty <> x) == x
+
+        it "obeys the right unital law" $ property $ \(x :: Interval) ->
+          (x <> mempty) == x
+
     describe "embed" $ do
       let pat = embed ()
       it "should work" $ do
-        pat (0, 1) `shouldBe` [MkSignalEvent (0, 1) ()]
-        pat (0, 2) `shouldBe` [MkSignalEvent (0, 1) (), MkSignalEvent (1, 2) ()]
-        pat (0.5, 1.5) `shouldBe` [MkSignalEvent (0, 1) (), MkSignalEvent (1, 2) ()]
-        pat (0.5, 2.5) `shouldBe` [MkSignalEvent (0, 1) (), MkSignalEvent (1, 2) (), MkSignalEvent (2, 3) ()]
+        pat (MkInterval 0 1) `shouldBe`     [MkSignalEvent (MkInterval 0 1) (pure ())]
+        pat (MkInterval 0 2) `shouldBe`     [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ())]
+        pat (MkInterval 0.5 1.5) `shouldBe` [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ())]
+        pat (MkInterval 0.5 2.5) `shouldBe` [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ()), MkSignalEvent (MkInterval 2 3) (pure ())]
 
-      it "starts of events should be less than query ends" $ property $ \input ->
-        let
-          ((NonNegative (start :: Rational), NonNegative (dur :: Rational))) = input
-          end = start + dur
-          events = pat (start, end)
-          offendingEvents = filter (\MkSignalEvent { support = (s, _) } -> s >= end) events
-        in
-          length offendingEvents == 0
+      it "starts of events should be less than query ends" $ property $ \query@MkInterval{start, end} ->
+          [] == filter (\MkSignalEvent { support = MkInterval s _ } -> s >= end) (pat query)
 
-      it "ends of events should be greater than query starts" $ property $ \input ->
-        let
-          ((NonNegative (start :: Rational), NonNegative (dur :: Rational))) = input
-          end = start + dur
-          events = pat (start, end)
-          offendingEvents = filter (\MkSignalEvent { support = (_, e) } -> e <= start) events
-        in
-          length offendingEvents == 0
+      it "ends of events should be greater than query starts" $ property $ \query@MkInterval{start, end} ->
+          [] == filter (\MkSignalEvent { support = MkInterval _ e } -> e <= start) (pat query)
 
       describe "when pruned" $ do
         let pat = embed () & prune
 
         it "should have transparently divisible queries" $ do
-          (pat (0, 0) <> pat (0, 1)) `shouldBe` pat (0, 1)
-          (pat (0, 1) <> pat (1, 1)) `shouldBe` pat (0, 1)
-          (pat (0, 0.5) <> pat (0.5, 1.0)) `shouldBe` pat (0, 1)
-          (pat (0, 0.3) <> pat (0.3, 1.3) <> pat (1.3, 2)) `shouldBe` pat (0, 2)
+          -- FIXME: refactor
+          (pat (MkInterval 0 0)   <> pat (MkInterval 0 1)) `shouldBe` pat (MkInterval 0 1)
+          (pat (MkInterval 0 1)   <> pat (MkInterval 1 1)) `shouldBe` pat (MkInterval 0 1)
+          (pat (MkInterval 0 0.5) <> pat (MkInterval 0.5 1.0)) `shouldBe` pat (MkInterval 0 1)
+          (pat (MkInterval 0 0.3) <> pat (MkInterval 0.3 1.3) <> pat (MkInterval 1.3 2)) `shouldBe` pat (MkInterval 0 2)
 
     describe "fast" $ do
       let pat = embed ()
       it "should noop for fast 1" $ do
-        (fast 1 pat) (0, 1)  `shouldBe` pat (0, 1)
+        (fast 1 pat) (MkInterval 0 1)  `shouldBe` pat (MkInterval 0 1)
 
       it "should work for fast 2" $ do
-        (fast 2 pat) (0, 0.5) `shouldBe` [MkSignalEvent (0, 1/2) ()]
-        (fast 2 pat) (0, 1) `shouldBe` [MkSignalEvent (0, 1/2) (), MkSignalEvent (1/2, 1) ()]
-        (fast 2 pat) (1, 2) `shouldBe` [MkSignalEvent (1, 3/2) (), MkSignalEvent (3/2, 2) ()]
+        (fast 2 pat) (MkInterval 0 0.5) `shouldBe` [MkSignalEvent (MkInterval 0 0.5) (pure ())]
+        (fast 2 pat) (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 0.5) (pure ()), MkSignalEvent (MkInterval 0.5 1) (pure ())]
+        (fast 2 pat) (MkInterval 1 2) `shouldBe`   [MkSignalEvent (MkInterval 1 1.5) (pure ()), MkSignalEvent (MkInterval 1.5 2) (pure ())]
 
       it "should work for fast 3" $ do
-        (fast 3 pat) (0, 1/3) `shouldBe` [MkSignalEvent (0, 1/3) ()]
-        (fast 3 pat) (0, 1) `shouldBe` [MkSignalEvent (0, 1/3) (), MkSignalEvent (1/3, 2/3) (), MkSignalEvent (2/3, 1) ()]
-        (fast 3 pat) (2/3, 4/3) `shouldBe` [MkSignalEvent (2/3, 1) (), MkSignalEvent (1, 4/3) ()]
+        (fast 3 pat) (MkInterval 0 (1/3)) `shouldBe`     [MkSignalEvent (MkInterval 0 (1/3)) (pure ())]
+        (fast 3 pat) (MkInterval 0 1) `shouldBe`         [MkSignalEvent (MkInterval 0 (1/3)) (pure ()), MkSignalEvent (MkInterval (1/3) (2/3)) (pure ()), MkSignalEvent (MkInterval (2/3) 1) (pure ())]
+        (fast 3 pat) (MkInterval (2/3) (4/3)) `shouldBe` [MkSignalEvent (MkInterval (2/3) 1) (pure ()), MkSignalEvent (MkInterval 1 (4/3)) (pure ())]
 
       it "should noop for fast 0.5" $ do
-        (fast 0.5 pat) (0, 1) `shouldBe` [MkSignalEvent (0, 2) ()]
-        (fast 0.5 pat) (0, 2) `shouldBe` [MkSignalEvent (0, 2) ()]
+        (fast 0.5 pat) (MkInterval 0 1) `shouldBe` [MkSignalEvent (MkInterval 0 2) (pure ())]
+        (fast 0.5 pat) (MkInterval 0 2) `shouldBe` [MkSignalEvent (MkInterval 0 2) (pure ())]
 
     describe "shift" $ do
       let pat = embed ()
       it "should noop for shift 0" $ do
-        (shift 0 pat) (0, 1)  `shouldBe` pat (0, 1)
+        (shift 0 pat) (MkInterval 0 1)  `shouldBe` pat (MkInterval 0 1)
 
       it "should work" $ do
-        (shift 0 pat) (0, 1) `shouldBe` [MkSignalEvent (0, 1) ()]
-        (shift 0.5 pat) (0, 1) `shouldBe` [MkSignalEvent (-1/2, 1/2) (), MkSignalEvent (1/2, 3/2) ()]
-        (shift 1 pat) (0, 1) `shouldBe` [MkSignalEvent (0, 1) ()]
+        (shift 0 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
+        (shift 0.5 pat) (MkInterval 0 1) `shouldBe` [MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ()), MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())]
+        (shift 1 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
 
       it "should shift forwards in time" $ do
-        (shift 0.25 pat) (0, 1)  `shouldBe` [MkSignalEvent (-3/4, 1/4) (), MkSignalEvent (1/4, 5/4) ()]
+        (shift 0.25 pat) (MkInterval 0 1)  `shouldBe` [MkSignalEvent (MkInterval (-3/4) (1/4)) (pure ()), MkSignalEvent (MkInterval (1/4) (5/4)) (pure ())]
 
     describe "stack" $ do
       let pat = embed ()
       it "should stack patterns" $ do
-        stack [(shift 0.25 pat), (shift 0.5 pat)] (0, 1) `shouldBe`
-          [ MkSignalEvent (-3/4, 1/4) ()
-          , MkSignalEvent (1/4, 5/4) ()
-          , MkSignalEvent (-1/2, 1/2) ()
-          , MkSignalEvent (1/2, 3/2) ()
+        stack [(shift 0.25 pat), (shift 0.5 pat)] (MkInterval 0 1) `shouldBe`
+          [ MkSignalEvent (MkInterval (-3/4) (1/4)) (pure ())
+          , MkSignalEvent (MkInterval (1/4) (5/4)) (pure ())
+          , MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ())
+          , MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())
           ]
 
     describe "interleave" $ do
       let pat = embed ()
       it "should noop for 1" $ do
-        interleave [pat] (0, 1) `shouldBe` pat (0, 1)
+        interleave [pat] (MkInterval 0 1) `shouldBe` pat (MkInterval 0 1)
 
       it "should stack patterns, shifted" $ do
-        interleave [pat, pat] (0, 1) `shouldBe` stack [(shift 0 pat), (shift 0.5 pat)] (0, 1)
-        interleave [pat, pat, pat] (0, 1) `shouldBe` stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)] (0, 1)
+        interleave [pat, pat]      (MkInterval 0 1) `shouldBe` stack [(shift 0 pat), (shift 0.5 pat)] (MkInterval 0 1)
+        interleave [pat, pat, pat] (MkInterval 0 1) `shouldBe` stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)] (MkInterval 0 1)
 
-    describe "ap" $ do
-      let pat = embed ()
+    -- describe "ap" $ do
+    --   let pat = embed ()
 
-      it "should noop for pure id" $ do
-        (ap (embed id) pat) (0, 1)  `shouldBe` [MkSignalEvent (0, 1) ()]
+    --   it "should noop for pure id" $ do
+    --     (ap (embed id) pat) (0, 1)  `shouldBe` [MkSignalEvent (0, 1) ()]
