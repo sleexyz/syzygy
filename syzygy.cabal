@@ -1,4 +1,4 @@
--- This file has been generated from package.yaml by hpack version 0.17.0.
+-- This file has been generated from package.yaml by hpack version 0.18.1.
 --
 -- see: https://github.com/sol/hpack
 
@@ -25,6 +25,8 @@ library
     , profunctors
   exposed-modules:
       Syzygy
+  other-modules:
+      Paths_syzygy
   default-language: Haskell2010
 
 test-suite syzygy-test
