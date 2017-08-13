@@ -28,9 +28,10 @@ data Event a = MkEvent
 data SignalEvent a = MkSignalEvent
   { support :: Interval
   , event :: Event a
-  } deriving (Eq, Show)
+  } deriving (Eq, Show, Functor)
 
 type Signal a = Interval -> [SignalEvent a] -- A signal is defined by the "integral" of a sampling function
+
 
 instance Monoid Interval where
   MkInterval startX endX `mappend` MkInterval startY endY =
@@ -46,9 +47,24 @@ instance QC.Arbitrary Interval where
 
 instance Applicative Event where
   pure x = MkEvent { query = MkInterval 0 1, payload = x}
+
   MkEvent {query = queryF, payload = f} <*> MkEvent {query = queryX, payload = x} =
     MkEvent { query = queryF <> queryX, payload = f x }
 
+instance QC.Arbitrary a => QC.Arbitrary (Event a) where
+  arbitrary = do
+    query <- QC.arbitrary
+    payload <- QC.arbitrary
+    return MkEvent {query, payload}
+
+split :: SignalEvent (a -> b) -> SignalEvent a -> [SignalEvent b]
+split f x =
+  let
+    MkSignalEvent { support = supportF , event = MkEvent { query = queryF, payload = payloadF } } = f
+    MkSignalEvent { support = supportX, event = MkEvent { query = queryX, payload = payloadX } } = x
+  in
+    do
+      return $ MkSignalEvent { support = supportX, event = MkEvent { query = queryX, payload = payloadF payloadX } }
 
 embed :: a -> Signal a
 embed x (MkInterval queryStart queryEnd) = do
@@ -57,6 +73,7 @@ embed x (MkInterval queryStart queryEnd) = do
     end = (fromIntegral @Integer) . ceiling $ queryEnd
   beat <- [start..end - 1]
   return MkSignalEvent { support = MkInterval beat (beat + 1), event = pure x }
+
 
 
 prune :: Signal a -> Signal a
@@ -68,8 +85,7 @@ prune signal (MkInterval queryStart queryEnd) = filter inBounds $ signal (MkInte
 shift :: Time -> Signal a -> Signal a
 shift t f = f
   & lmap (\MkInterval{start, end} -> MkInterval { start = start - t, end = end - t })
-  & rmap (\res -> [MkSignalEvent { support = MkInterval (start + t) (end + t), event = x } | MkSignalEvent { support = MkInterval{start, end}, event = x } <- res])
-  -- FIXME: clean up
+  & rmap (fmap $ \ev@MkSignalEvent { support = MkInterval start end } -> ev { support = MkInterval (start + t) (end + t) })
 
 stack :: [Signal a] -> Signal a
 stack sigs query = do
@@ -86,8 +102,7 @@ interleave sigs query = do
 fast :: Rational -> Signal a -> Signal a
 fast n sig = sig
   & lmap (\MkInterval{start, end} -> MkInterval { start = start * n, end = end * n })
-  & rmap (\res -> [MkSignalEvent { support = MkInterval (start / n) (end / n), event = x } | MkSignalEvent { support = MkInterval{start, end}, event = x } <- res])
-  -- FIXME: clean up
+  & rmap (fmap $ \ev@MkSignalEvent { support = MkInterval start end } -> ev { support = MkInterval (start / n) (end / n) })
 
 -- ap ::  Signal (a -> b) -> Signal a -> Signal b
 -- ap sigF (prune -> sigX) = prune $ \query0 ->  do

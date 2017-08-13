@@ -1,4 +1,3 @@
-{-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE ViewPatterns #-}
@@ -27,6 +26,37 @@ spec = do
         it "obeys the right unital law" $ property $ \(x :: Interval) ->
           (x <> mempty) == x
 
+    describe "Event" $ do
+      describe "Applicative Instance" $ do
+        it "obeys the identity law" $ property $ \(event :: Event ()) ->
+          (pure id <*> event) ==  event
+
+        it "obeys the homomorphism law" $ do
+          let f = (, "hello")
+          let x = ()
+          (pure f <*> pure x) `shouldBe` pure @Event (f x)
+
+        it "obeys the interchange law" $ property $ \(query :: Interval)->
+          let u = MkEvent { query, payload = (,"hello") }
+          in (u <*> pure ()) == (pure ($()) <*> u)
+
+        it "obeys the composition law" $ property $ \(input :: (Event String, Event String, Event String)) ->
+          let (fmap (<>) -> u, fmap (<>) -> v, x) = input
+          in (pure (.) <*> u <*> v <*> x) == (u <*> (v <*> x))
+
+    describe "split" $ do
+      it "works" $ do
+        let
+          eventF = MkSignalEvent { support = MkInterval 0 1, event = pure id}
+          eventX = MkSignalEvent { support = MkInterval 0 1, event = pure ()}
+        split eventF eventX `shouldBe` [eventX]
+
+      it "works" $ do
+        let
+          eventF = MkSignalEvent { support = MkInterval 0 1, event = pure id}
+          eventX = MkSignalEvent { support = MkInterval 0 1, event = pure ()}
+        split eventF eventX `shouldBe` [eventX]
+
     describe "embed" $ do
       let pat = embed ()
       it "should work" $ do
@@ -45,7 +75,6 @@ spec = do
         let pat = embed () & prune
 
         it "should have transparently divisible queries" $ do
-          -- FIXME: refactor
           (pat (MkInterval 0 0)   <> pat (MkInterval 0 1)) `shouldBe` pat (MkInterval 0 1)
           (pat (MkInterval 0 1)   <> pat (MkInterval 1 1)) `shouldBe` pat (MkInterval 0 1)
           (pat (MkInterval 0 0.5) <> pat (MkInterval 0.5 1.0)) `shouldBe` pat (MkInterval 0 1)
@@ -77,7 +106,7 @@ spec = do
 
       it "should work" $ do
         (shift 0 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
-        (shift 0.5 pat) (MkInterval 0 1) `shouldBe` [MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ()), MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())]
+        (shift 0.5 pat) (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ()), MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())]
         (shift 1 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
 
       it "should shift forwards in time" $ do
