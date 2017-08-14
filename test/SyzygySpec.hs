@@ -8,8 +8,8 @@ module SyzygySpec where
 
 import Test.Hspec
 import Syzygy
-import qualified Test.QuickCheck as QC
 import Data.Monoid ((<>))
+import qualified Test.QuickCheck as QC
 
 spec :: Spec
 spec = do
@@ -165,40 +165,34 @@ spec = do
         signal ((embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
         signal ((fast 2 $ embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
 
-    -- describe "shift" $ do
-    --   let pat = embed ()
-    --   it "should noop for shift 0" $ do
-    --     (shift 0 pat) (MkInterval 0 1)  `shouldBe` pat (MkInterval 0 1)
+    describe "shift" $ do
+      let pat = embed ()
+      it "should noop for shift 0" $ do
+        signal (shift 0 pat) (0, 1)  `shouldBe` signal pat (0, 1)
 
-    --   it "should work" $ do
-    --     (shift 0 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
-    --     (shift 0.5 pat) (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ()), MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())]
-    --     (shift 1 pat)   (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 1) (pure ())]
+      it "should work" $ do
+        signal (shift 0 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
+        signal (shift 0.5 pat) (0, 1) `shouldBe` [MkEvent ((-1/2), (1/2)) (), MkEvent ((1/2), (3/2)) ()]
+        signal (shift 1 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
 
-    --   it "should shift forwards in time" $ do
-    --     (shift 0.25 pat) (MkInterval 0 1)  `shouldBe` [MkSignalEvent (MkInterval (-3/4) (1/4)) (pure ()), MkSignalEvent (MkInterval (1/4) (5/4)) (pure ())]
+      it "should shift forwards in time" $ do
+        signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent ((-3/4), (1/4)) (), MkEvent ((1/4), (5/4)) ()]
 
-    -- describe "stack" $ do
-    --   let pat = embed ()
-    --   it "should stack patterns" $ do
-    --     stack [(shift 0.25 pat), (shift 0.5 pat)] (MkInterval 0 1) `shouldBe`
-    --       [ MkSignalEvent (MkInterval (-3/4) (1/4)) (pure ())
-    --       , MkSignalEvent (MkInterval (1/4) (5/4)) (pure ())
-    --       , MkSignalEvent (MkInterval (-1/2) (1/2)) (pure ())
-    --       , MkSignalEvent (MkInterval (1/2) (3/2)) (pure ())
-    --       ]
+    describe "stack" $ do
+      let pat = embed ()
+      it "should stack patterns" $ do
+        signal (stack [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
+          [ MkEvent ((-3/4), (1/4)) ()
+          , MkEvent ((1/4), (5/4)) ()
+          , MkEvent ((-1/2), (1/2)) ()
+          , MkEvent ((1/2), (3/2)) ()
+          ]
 
-    -- describe "interleave" $ do
-    --   let pat = embed ()
-    --   it "should noop for 1" $ do
-    --     interleave [pat] (MkInterval 0 1) `shouldBe` pat (MkInterval 0 1)
+    describe "interleave" $ do
+      let pat = embed ()
+      it "should noop for 1" $ do
+        signal (interleave [pat]) (0, 1) `shouldBe` signal pat (0, 1)
 
-    --   it "should stack patterns, shifted" $ do
-    --     interleave [pat, pat]      (MkInterval 0 1) `shouldBe` stack [(shift 0 pat), (shift 0.5 pat)] (MkInterval 0 1)
-    --     interleave [pat, pat, pat] (MkInterval 0 1) `shouldBe` stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)] (MkInterval 0 1)
-
-    -- describe "ap" $ do
-    --   let pat = embed ()
-
-    --   it "should noop for pure id" $ do
-    --     (ap (embed id) pat) (0, 1)  `shouldBe` [MkSignalEvent (0, 1) ()]
+      it "should stack patterns, shifted" $ do
+        signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
+        signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)

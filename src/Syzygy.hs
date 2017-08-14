@@ -96,23 +96,13 @@ instance Monoid a => Monoid (Signal a) where
           in
             foldr f [] xs
 
-
--- -- | shift forward in time
--- shift :: Time -> Signal a -> Signal a
--- shift t f = f
---   & lmap (\MkInterval{start, end} -> MkInterval { start = start - t, end = end - t })
---   & rmap (fmap $ \ev@MkSignalEvent { support = MkInterval start end } -> ev { support = MkInterval (start + t) (end + t) })
-
--- stack :: [Signal a] -> Signal a
--- stack sigs query = do
---   sig <- sigs
---   sig query
-
--- interleave :: [Signal a] -> Signal a
--- interleave sigs query = do
---   let (fromIntegral -> len) = length sigs
---   (sig, n) <- zip sigs [0..]
---   shift (n/len) sig query
+-- | shift forward in time
+shift :: Time -> Signal a -> Signal a
+shift t MkSignal {signal=originalSignal} = MkSignal {signal}
+  where
+    signal = originalSignal
+      & lmap (\(start, end) -> (start - t, end - t ))
+      & rmap (fmap $ \ev@MkEvent { query = (start, end) } -> ev { query = (start + t, end + t) })
 
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
@@ -122,25 +112,15 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
       & lmap (\(start, end) -> ( start * n, end * n ))
       & rmap (fmap $ \ev@MkEvent { query = (start, end) } -> ev { query = (start / n, end / n) })
 
--- ap ::  Signal (a -> b) -> Signal a -> Signal b
--- ap sigF (prune -> sigX) = prune $ \query0 ->  do
---   MkSignalEvent { support = query1, event = f } <- sigF query0
---   MkSignalEvent { support = query2, event = x } <- sigX query1
---   return MkSignalEvent { support = query2, event = f x }
+-- | stack in parallel
+stack :: [Signal a] -> Signal a
+stack sigs = MkSignal $ \query -> do
+  MkSignal{signal} <- sigs
+  signal query
 
--- A Behavior is a continuous function that is defined at every point in the sampling space
--- type Behavior a = forall b. (Signal (a -> b) -> Signal b)
--- runBehavior :: Behavior (a -> b) -> Signal a -> Signal b
--- runBehavior b s = b $ (fmap . fmap . fmap) (flip ($)) s
-
--- liftContinuous :: (Time -> a) -> Behavior a
--- liftContinuous fn sig query = do
---   let events = sig query
---   ((s, e), f) <- events
---   let
---     midpoint = (s + e) * 0.5
---     y = fn midpoint
---   return ((s, e), f y)
-
--- sine :: Behavior Double
--- sine = liftContinuous $ sin . fromRational
+-- | interleave within one period
+interleave :: [Signal a] -> Signal a
+interleave sigs = MkSignal $ \query -> do
+  let (fromIntegral -> len) = length sigs
+  (sig, n) <- zip sigs [0..]
+  signal (shift (n/len) sig) query
