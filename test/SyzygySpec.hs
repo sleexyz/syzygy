@@ -9,7 +9,6 @@ module SyzygySpec where
 import Test.Hspec
 import Syzygy
 import qualified Test.QuickCheck as QC
-import Data.Function ((&))
 import Data.Monoid ((<>))
 
 spec :: Spec
@@ -17,23 +16,6 @@ spec = do
   describe "Syzygy" $ do
 
     describe "Event" $ do
-      -- describe "Applicative Instance" $ do
-      --   it "obeys the identity law" $ property $ \(event :: Event ()) ->
-      --     (pure id <*> event) ==  event
-
-      --   it "obeys the homomorphism law" $ do
-      --     let f = (, "hello")
-      --     let x = ()
-      --     (pure f <*> pure x) `shouldBe` pure @Event (f x)
-
-      --   it "obeys the interchange law" $ property $ \(query :: Interval)->
-      --     let u = MkEvent { query, payload = (,"hello") }
-      --     in (u <*> pure ()) == (pure ($()) <*> u)
-
-      --   it "obeys the composition law" $ property $ \(input :: (Event String, Event String, Event String)) ->
-      --     let (fmap (<>) -> u, fmap (<>) -> v, x) = input
-      --     in (pure (.) <*> u <*> v <*> x) == (u <*> (v <*> x))
-
       describe "combineEvent" $ do
         it "works overlapped 1" $ do
           let

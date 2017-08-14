@@ -9,7 +9,6 @@ module Syzygy where
 import Data.Profunctor
 import Data.Function ((&))
 import Data.Monoid
-import qualified Test.QuickCheck as QC
 
 type Time = Rational
 
@@ -20,32 +19,8 @@ data Event a = MkEvent
   , payload :: a
   } deriving (Eq, Show, Functor)
 
--- type SignalEvent a = Event (Event a)
--- data SignalEvent a = MkSignalEvent
---   { support :: Interval
---   , event :: Event a
---   } deriving (Eq, Show, Functor)
-
 newtype Signal a = MkSignal { signal :: Interval -> [Event a] } -- A signal is defined by the "integral" of a sampling function
 
-
--- instance Monoid Interval where
---   MkInterval startX endX `mappend` MkInterval startY endY =
---     let lengthX = endX - startX
---     in MkInterval (startX + lengthX * startY) (startX + lengthX * endY)
---   mempty = MkInterval 0 1
-
--- instance Applicative Event where
---   pure x = MkEvent { query = MkInterval 0 1, payload = x}
-
---   MkEvent {query = queryF, payload = f} <*> MkEvent {query = queryX, payload = x} =
---     MkEvent { query = queryF <> queryX, payload = f x }
-
-instance QC.Arbitrary a => QC.Arbitrary (Event a) where
-  arbitrary = do
-    query <- QC.arbitrary
-    payload <- QC.arbitrary
-    return MkEvent {query, payload}
 
 combineEvent :: forall a. Monoid a => Event a -> Event a -> [Event a]
 combineEvent x y = headX <> headY <> overlap <> tailY <> tailX
