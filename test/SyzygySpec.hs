@@ -15,134 +15,136 @@ import Data.Monoid ((<>))
 spec :: Spec
 spec = do
   describe "Syzygy" $ do
-    describe "Interval" $ do
-      describe "Monoid Instance" $ do
-        it "obeys the associative law" $ property $ \(x :: Interval, y :: Interval, z :: Interval) ->
-          (x <> (y <> z)) ==  ((x <> y) <> z)
-
-        it "obeys the left unital law" $ property $ \(x :: Interval) ->
-          (mempty <> x) == x
-
-        it "obeys the right unital law" $ property $ \(x :: Interval) ->
-          (x <> mempty) == x
 
     describe "Event" $ do
-      describe "Applicative Instance" $ do
-        it "obeys the identity law" $ property $ \(event :: Event ()) ->
-          (pure id <*> event) ==  event
+      -- describe "Applicative Instance" $ do
+      --   it "obeys the identity law" $ property $ \(event :: Event ()) ->
+      --     (pure id <*> event) ==  event
 
-        it "obeys the homomorphism law" $ do
-          let f = (, "hello")
-          let x = ()
-          (pure f <*> pure x) `shouldBe` pure @Event (f x)
+      --   it "obeys the homomorphism law" $ do
+      --     let f = (, "hello")
+      --     let x = ()
+      --     (pure f <*> pure x) `shouldBe` pure @Event (f x)
 
-        it "obeys the interchange law" $ property $ \(query :: Interval)->
-          let u = MkEvent { query, payload = (,"hello") }
-          in (u <*> pure ()) == (pure ($()) <*> u)
+      --   it "obeys the interchange law" $ property $ \(query :: Interval)->
+      --     let u = MkEvent { query, payload = (,"hello") }
+      --     in (u <*> pure ()) == (pure ($()) <*> u)
 
-        it "obeys the composition law" $ property $ \(input :: (Event String, Event String, Event String)) ->
-          let (fmap (<>) -> u, fmap (<>) -> v, x) = input
-          in (pure (.) <*> u <*> v <*> x) == (u <*> (v <*> x))
+      --   it "obeys the composition law" $ property $ \(input :: (Event String, Event String, Event String)) ->
+      --     let (fmap (<>) -> u, fmap (<>) -> v, x) = input
+      --     in (pure (.) <*> u <*> v <*> x) == (u <*> (v <*> x))
 
-    -- describe "embed" $ do
-    --   let pat = embed ()
-    --   it "should work" $ do
-    --     pat (MkInterval 0 1) `shouldBe`     [MkSignalEvent (MkInterval 0 1) (pure ())]
-    --     pat (MkInterval 0 2) `shouldBe`     [MkSignalEvent (MkInterval 0 1) (pure ()), MkSignalEvent (MkInterval 1 2) (pure ())]
-    --     pat (MkInterval 0.5 1.5) `shouldBe` [MkSignalEvent (MkInterval 1 2) (pure ())]
-    --     pat (MkInterval 0.5 2.5) `shouldBe` [MkSignalEvent (MkInterval 1 2) (pure ()), MkSignalEvent (MkInterval 2 3) (pure ())]
+      describe "combineEvent" $ do
+        it "works overlapped 1" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (0, 1), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe` [ MkEvent { query = (0, 1), payload = "HelloWorld" } ]
 
-    --   it "starts of events should be less than query ends" $ property $ \query@MkInterval{end} ->
-    --       [] == filter (\MkSignalEvent { support = MkInterval s _ } -> s >= end) (pat query)
+        it "works overlapped 2" $ do
+          let
+            eventX = MkEvent { query = (0, 0.5), payload = "Hello"}
+            eventY = MkEvent { query = (0, 1), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 0.5), payload = "HelloWorld" }
+            , MkEvent { query = (0.5, 1), payload = "World" }
+            ]
 
-    --   it "ends of events should be greater than query starts" $ property $ \query@MkInterval{start} ->
-    --       [] == filter (\MkSignalEvent { support = MkInterval _ e } -> e <= start) (pat query)
+        it "works overlapped 3" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (0, 0.5), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 0.5), payload = "HelloWorld" }
+            , MkEvent { query = (0.5, 1), payload = "Hello" }
+            ]
 
-    --   it "should have transparently divisible queries" $ do
-    --     (pat (MkInterval 0 0)   <> pat (MkInterval 0 1)) `shouldBe` pat (MkInterval 0 1)
-    --     (pat (MkInterval 0 1)   <> pat (MkInterval 1 1)) `shouldBe` pat (MkInterval 0 1)
-    --     (pat (MkInterval 0 0.5) <> pat (MkInterval 0.5 1.0)) `shouldBe` pat (MkInterval 0 1)
-    --     (pat (MkInterval 0 0.3) <> pat (MkInterval 0.3 1.3) <> pat (MkInterval 1.3 2)) `shouldBe` pat (MkInterval 0 2)
+        it "works overlapped 4" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (0.5, 1), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 0.5), payload = "Hello" }
+            , MkEvent { query = (0.5, 1), payload = "HelloWorld" }
+            ]
 
-    describe "split" $ do
-      it "works overlapped 1" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
-        (eventX `split` eventY) `shouldBe` [ MkEvent { query = MkInterval 0 1, payload = "HelloWorld" } ]
+        it "works overlapped 5" $ do
+          let
+            eventX = MkEvent { query = (0.5, 1), payload = "Hello"}
+            eventY = MkEvent { query = (0, 1), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 0.5), payload = "World" }
+            , MkEvent { query = (0.5, 1), payload = "HelloWorld" }
+            ]
 
-      it "works overlapped 2" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 0.5, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 0.5, payload = "HelloWorld" }
-          , MkEvent { query = MkInterval 0.5 1, payload = "World" }
-          ]
+        it "works overlapped 6" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (0.25, 0.75), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 0.25), payload = "Hello" }
+            , MkEvent { query = (0.25, 0.75), payload = "HelloWorld" }
+            , MkEvent { query = (0.75, 1), payload = "Hello" }
+            ]
 
-      it "works overlapped 3" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0 0.5, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 0.5, payload = "HelloWorld" }
-          , MkEvent { query = MkInterval 0.5 1, payload = "Hello" }
-          ]
+        it "works when there are no overlaps" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (1, 2), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 1), payload = "Hello" }
+            , MkEvent { query = (1, 2), payload = "World" }
+            ]
 
-      it "works overlapped 4" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0.5 1, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 0.5, payload = "Hello" }
-          , MkEvent { query = MkInterval 0.5 1, payload = "HelloWorld" }
-          ]
+        it "works when there are no overlaps 2" $ do
+          let
+            eventX = MkEvent { query = (0, 1), payload = "Hello"}
+            eventY = MkEvent { query = (2, 3), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 1), payload = "Hello" }
+            , MkEvent { query = (2, 3), payload = "World" }
+            ]
 
-      it "works overlapped 5" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0.5 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 0.5, payload = "World" }
-          , MkEvent { query = MkInterval 0.5 1, payload = "HelloWorld" }
-          ]
+        it "works when there are no overlaps 3" $ do
+          let
+            eventX = MkEvent { query = (2, 3), payload = "Hello"}
+            eventY = MkEvent { query = (0, 1), payload = "World"}
+          (eventX `combineEvent` eventY) `shouldBe`
+            [ MkEvent { query = (0, 1), payload = "World" }
+            , MkEvent { query = (2, 3), payload = "Hello" }
+            ]
 
-      it "works overlapped 6" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0.25 0.75, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 0.25, payload = "Hello" }
-          , MkEvent { query = MkInterval 0.25 0.75, payload = "HelloWorld" }
-          , MkEvent { query = MkInterval 0.75 1, payload = "Hello" }
-          ]
+    describe "Signal" $ do
+      describe "embed" $ do
+        let pat = embed ()
+        it "should work" $ do
+          signal pat (0, 1) `shouldBe`     [MkEvent (0, 1) ()]
+          signal pat (0, 2) `shouldBe`     [MkEvent (0, 1) (), MkEvent (1, 2) ()]
+          signal pat (0.5, 1.5) `shouldBe` [MkEvent (1, 2) ()]
+          signal pat (0.5, 2.5) `shouldBe` [MkEvent (1, 2) (), MkEvent (2, 3) ()]
 
-      it "works when there are no overlaps" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 1 2, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 1, payload = "Hello" }
-          , MkEvent { query = MkInterval 1 2, payload = "World" }
-          ]
+        it "starts of events should be less than query ends" $ property $ \query@(_, end) ->
+          [] == filter (\MkEvent { query = (s, _) } -> s >= end) (signal pat query)
 
-      it "works when there are no overlaps 2" $ do
-        let
-          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 2 3, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 1, payload = "Hello" }
-          , MkEvent { query = MkInterval 2 3, payload = "World" }
-          ]
+        it "ends of events should be greater than query starts" $ property $ \query@(start, _) ->
+          [] == filter (\MkEvent { query = (_, e) } -> e <= start) (signal pat query)
 
-      it "works when there are no overlaps 3" $ do
-        let
-          eventX = MkEvent { query = MkInterval 2 3, payload = "Hello"}
-          eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
-        (eventX `split` eventY) `shouldBe`
-          [ MkEvent { query = MkInterval 0 1, payload = "World" }
-          , MkEvent { query = MkInterval 2 3, payload = "Hello" }
-          ]
+        it "should have transparently divisible queries" $ do
+          (signal pat (0, 0)   <> signal pat (0, 1)) `shouldBe` signal pat (0, 1)
+          (signal pat (0, 1)   <> signal pat (1, 1)) `shouldBe` signal pat (0, 1)
+          (signal pat (0, 0.5) <> signal pat (0.5, 1.0)) `shouldBe` signal pat (0, 1)
+          (signal pat (0, 0.3) <> signal pat (0.3, 1.3) <> signal pat (1.3, 2)) `shouldBe` signal pat (0, 2)
+
+      -- describe "Monoid Instance" $ do
+        -- it "obeys the associative law" $ property $ \(x :: Interval, y :: Interval, z :: Interval) ->
+        --   (x <> (y <> z)) ==  ((x <> y) <> z)
+
+        -- it "obeys the left unital law" $ property $ \(x :: Interval) ->
+        --   (mempty <> x) == x
+
+        -- it "obeys the right unital law" $ property $ \(x :: Interval) ->
+        --   (x <> mempty) == x
+
 
     -- describe "fast" $ do
     --   let pat = embed ()

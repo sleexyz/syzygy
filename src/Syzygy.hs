@@ -13,44 +13,39 @@ import qualified Test.QuickCheck as QC
 
 type Time = Rational
 
--- | left-closed and right-open intervals
-data Interval = MkInterval
-  { start :: Time
-  , end :: Time
-  }
-  deriving (Eq, Show)
+type Interval = (Time, Time)
 
 data Event a = MkEvent
-  { query :: Interval
+  { query :: (Time, Time)
   , payload :: a
   } deriving (Eq, Show, Functor)
 
-type SignalEvent a = Event (Event a)
+-- type SignalEvent a = Event (Event a)
 -- data SignalEvent a = MkSignalEvent
 --   { support :: Interval
 --   , event :: Event a
 --   } deriving (Eq, Show, Functor)
 
-type Signal a = Interval -> [SignalEvent a] -- A signal is defined by the "integral" of a sampling function
+newtype Signal a = MkSignal { signal :: Interval -> [Event a] } -- A signal is defined by the "integral" of a sampling function
 
 
-instance Monoid Interval where
-  MkInterval startX endX `mappend` MkInterval startY endY =
-    let lengthX = endX - startX
-    in MkInterval (startX + lengthX * startY) (startX + lengthX * endY)
-  mempty = MkInterval 0 1
+-- instance Monoid Interval where
+--   MkInterval startX endX `mappend` MkInterval startY endY =
+--     let lengthX = endX - startX
+--     in MkInterval (startX + lengthX * startY) (startX + lengthX * endY)
+--   mempty = MkInterval 0 1
 
-instance QC.Arbitrary Interval where
-  arbitrary = getInterval <$> QC.arbitrary
-    where
-      getInterval :: (QC.NonNegative Rational, QC.NonNegative Rational) -> Interval
-      getInterval (QC.NonNegative start, QC.NonNegative dur) = MkInterval {start, end = start + dur}
+-- instance QC.Arbitrary Interval where
+--   arbitrary = getInterval <$> QC.arbitrary
+--     where
+--       getInterval :: (QC.NonNegative Rational, QC.NonNegative Rational) -> Interval
+--       getInterval (QC.NonNegative start, QC.NonNegative dur) = (start, start + dur)
 
-instance Applicative Event where
-  pure x = MkEvent { query = MkInterval 0 1, payload = x}
+-- instance Applicative Event where
+--   pure x = MkEvent { query = MkInterval 0 1, payload = x}
 
-  MkEvent {query = queryF, payload = f} <*> MkEvent {query = queryX, payload = x} =
-    MkEvent { query = queryF <> queryX, payload = f x }
+--   MkEvent {query = queryF, payload = f} <*> MkEvent {query = queryX, payload = x} =
+--     MkEvent { query = queryF <> queryX, payload = f x }
 
 instance QC.Arbitrary a => QC.Arbitrary (Event a) where
   arbitrary = do
@@ -58,48 +53,59 @@ instance QC.Arbitrary a => QC.Arbitrary (Event a) where
     payload <- QC.arbitrary
     return MkEvent {query, payload}
 
-split :: forall a. Monoid a => Event a -> Event a -> [Event a]
-split x y = headX <> headY <> overlap <> tailY <> tailX
+combineEvent :: forall a. Monoid a => Event a -> Event a -> [Event a]
+combineEvent x y = headX <> headY <> overlap <> tailY <> tailX
   where
-    MkEvent { query = MkInterval startX endX, payload = payloadX } = x
-    MkEvent { query = MkInterval startY endY, payload = payloadY } = y
-    overlap = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX <> payloadY }
+    MkEvent { query = (startX, endX), payload = payloadX } = x
+    MkEvent { query = (startY, endY), payload = payloadY } = y
+    overlap = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX <> payloadY }
       where
         start = max startX startY
         end = min endX endY
 
-    tailY = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadY }
+    tailY = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadY }
       where
         start = max startY endX
         end = endY
 
-    tailX = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX }
+    tailX = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX }
       where
         start = max startX endY
         end = endX
 
-    headX = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX }
+    headX = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX }
       where
         start = startX
         end = min endX startY
 
-    headY = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadY }
+    headY = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadY }
       where
         start = startY
         end = min startX endY
 
--- embed :: a -> Signal a
--- embed x = pruneSignal $ \(MkInterval queryStart queryEnd) -> do
---   let
---     start = (fromIntegral @Integer) . floor $ queryStart
---     end = (fromIntegral @Integer) . ceiling $ queryEnd
---   beat <- [start..end - 1]
---   return MkSignalEvent { support = MkInterval beat (beat + 1), event = pure x }
+embed :: a -> Signal a
+embed x = pruneSignal $ MkSignal $ \(queryStart, queryEnd) -> do
+  let
+    start = (fromIntegral @Integer) . floor $ queryStart
+    end = (fromIntegral @Integer) . ceiling $ queryEnd
+  beat <- [start..end - 1]
+  return MkEvent { query = (beat, (beat + 1)), payload = x }
 
--- pruneSignal :: Signal a -> Signal a
--- pruneSignal signal (MkInterval queryStart queryEnd) = filter inBounds $ signal (MkInterval queryStart queryEnd)
---   where
---     inBounds MkSignalEvent {support = MkInterval{start}} = start >= queryStart && start < queryEnd
+pruneSignal :: Signal a -> Signal a
+pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
+  let
+    inBounds MkEvent {query = (start, _)} = start >= queryStart && start < queryEnd
+  in
+    filter inBounds $ sig (queryStart, queryEnd)
+
+instance Monoid a => Monoid (Signal a) where
+  mempty = MkSignal $ \_ -> []
+
+  (MkSignal sigX) `mappend` (MkSignal sigY) = MkSignal $ \query -> do
+    x <- sigX query
+    y <- sigY query
+    x `combineEvent` y
+
 
 -- -- | shift forward in time
 -- shift :: Time -> Signal a -> Signal a
