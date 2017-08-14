@@ -35,12 +35,6 @@ newtype Signal a = MkSignal { signal :: Interval -> [Event a] } -- A signal is d
 --     in MkInterval (startX + lengthX * startY) (startX + lengthX * endY)
 --   mempty = MkInterval 0 1
 
--- instance QC.Arbitrary Interval where
---   arbitrary = getInterval <$> QC.arbitrary
---     where
---       getInterval :: (QC.NonNegative Rational, QC.NonNegative Rational) -> Interval
---       getInterval (QC.NonNegative start, QC.NonNegative dur) = (start, start + dur)
-
 -- instance Applicative Event where
 --   pure x = MkEvent { query = MkInterval 0 1, payload = x}
 
@@ -83,8 +77,18 @@ combineEvent x y = headX <> headY <> overlap <> tailY <> tailX
         start = startY
         end = min startX endY
 
+combineEventOverlap :: forall a. Monoid a => Event a -> Event a -> [Event a]
+combineEventOverlap x y = overlap
+  where
+    MkEvent { query = (startX, endX), payload = payloadX } = x
+    MkEvent { query = (startY, endY), payload = payloadY } = y
+    overlap = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX <> payloadY }
+      where
+        start = max startX startY
+        end = min endX endY
+
 embed :: a -> Signal a
-embed x = pruneSignal $ MkSignal $ \(queryStart, queryEnd) -> do
+embed x = MkSignal $ \(queryStart, queryEnd) -> do
   let
     start = (fromIntegral @Integer) . floor $ queryStart
     end = (fromIntegral @Integer) . ceiling $ queryEnd
@@ -101,10 +105,21 @@ pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
 instance Monoid a => Monoid (Signal a) where
   mempty = MkSignal $ \_ -> []
 
-  (MkSignal sigX) `mappend` (MkSignal sigY) = MkSignal $ \query -> do
-    x <- sigX query
-    y <- sigY query
-    x `combineEvent` y
+  (MkSignal sigX) `mappend` (MkSignal sigY) = MkSignal $ \query ->
+    let
+      xs = sigX query
+    in
+      case xs of
+        [] -> sigY query
+        _ ->
+          let
+            f x@MkEvent{query=subQuery} acc = case sigY subQuery of
+              [] -> (pure x <> acc)
+              ys -> (<> acc) $ do
+                y <- ys
+                x `combineEventOverlap` y
+          in
+            foldr f [] xs
 
 
 -- -- | shift forward in time
@@ -124,11 +139,13 @@ instance Monoid a => Monoid (Signal a) where
 --   (sig, n) <- zip sigs [0..]
 --   shift (n/len) sig query
 
--- -- | scale faster in time
--- fast :: Rational -> Signal a -> Signal a
--- fast n sig = sig
---   & lmap (\MkInterval{start, end} -> MkInterval { start = start * n, end = end * n })
---   & rmap (fmap $ \ev@MkSignalEvent { support = MkInterval start end } -> ev { support = MkInterval (start / n) (end / n) })
+-- | scale faster in time
+fast :: Rational -> Signal a -> Signal a
+fast n MkSignal {signal=originalSignal} = MkSignal {signal}
+  where
+    signal = originalSignal
+      & lmap (\(start, end) -> ( start * n, end * n ))
+      & rmap (fmap $ \ev@MkEvent { query = (start, end) } -> ev { query = (start / n, end / n) })
 
 -- ap ::  Signal (a -> b) -> Signal a -> Signal b
 -- ap sigF (prune -> sigX) = prune $ \query0 ->  do

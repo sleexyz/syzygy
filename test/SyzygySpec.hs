@@ -8,7 +8,7 @@ module SyzygySpec where
 
 import Test.Hspec
 import Syzygy
-import Test.QuickCheck
+import qualified Test.QuickCheck as QC
 import Data.Function ((&))
 import Data.Monoid ((<>))
 
@@ -120,50 +120,68 @@ spec = do
         it "should work" $ do
           signal pat (0, 1) `shouldBe`     [MkEvent (0, 1) ()]
           signal pat (0, 2) `shouldBe`     [MkEvent (0, 1) (), MkEvent (1, 2) ()]
-          signal pat (0.5, 1.5) `shouldBe` [MkEvent (1, 2) ()]
-          signal pat (0.5, 2.5) `shouldBe` [MkEvent (1, 2) (), MkEvent (2, 3) ()]
+          signal pat (0.5, 1.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 2) ()]
+          signal pat (0.5, 2.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 2) (), MkEvent (2, 3) ()]
 
-        it "starts of events should be less than query ends" $ property $ \query@(_, end) ->
+        it "starts of events should be less than query ends" $ QC.property $ \query@(_, end) ->
           [] == filter (\MkEvent { query = (s, _) } -> s >= end) (signal pat query)
 
-        it "ends of events should be greater than query starts" $ property $ \query@(start, _) ->
+        it "ends of events should be greater than query starts" $ QC.property $ \query@(start, _) ->
           [] == filter (\MkEvent { query = (_, e) } -> e <= start) (signal pat query)
 
-        it "should have transparently divisible queries" $ do
+        it "should have transparently divisible queries when pruned" $ do
+          let pat = pruneSignal $ embed ()
           (signal pat (0, 0)   <> signal pat (0, 1)) `shouldBe` signal pat (0, 1)
           (signal pat (0, 1)   <> signal pat (1, 1)) `shouldBe` signal pat (0, 1)
           (signal pat (0, 0.5) <> signal pat (0.5, 1.0)) `shouldBe` signal pat (0, 1)
           (signal pat (0, 0.3) <> signal pat (0.3, 1.3) <> signal pat (1.3, 2)) `shouldBe` signal pat (0, 2)
 
-      -- describe "Monoid Instance" $ do
-        -- it "obeys the associative law" $ property $ \(x :: Interval, y :: Interval, z :: Interval) ->
-        --   (x <> (y <> z)) ==  ((x <> y) <> z)
+      describe "Monoid Instance" $ do
+        let
+          shouldEqualSignal :: (Show a, Monoid a, Eq a) => Signal a -> Signal a -> IO ()
+          shouldEqualSignal x y = signal x query `shouldBe` signal y query
+            where
+              query = (0, 1)
 
-        -- it "obeys the left unital law" $ property $ \(x :: Interval) ->
-        --   (mempty <> x) == x
+          checkLeftUnitalLaw x = (mempty <> x) `shouldEqualSignal` x
+          checkRightUnitalLaw x = (x <> mempty) `shouldEqualSignal` x
+          checkAssociativeLaw x y z = (x <> (y <> z)) `shouldEqualSignal` ((x <> y) <> z)
 
-        -- it "obeys the right unital law" $ property $ \(x :: Interval) ->
-        --   (x <> mempty) == x
+        it "obeys the left unital law" $ do
+          checkLeftUnitalLaw (embed ())
+          checkLeftUnitalLaw (fast 2 $ embed ())
 
+        it "obeys the right unital law" $ do
+          checkRightUnitalLaw (embed ())
+          checkRightUnitalLaw (fast 2 $ embed ())
 
-    -- describe "fast" $ do
-    --   let pat = embed ()
-    --   it "should noop for fast 1" $ do
-    --     (fast 1 pat) (MkInterval 0 1)  `shouldBe` pat (MkInterval 0 1)
+        it "obeys the associative law" $ do
+          checkAssociativeLaw (embed "a") (embed "b") (embed "c")
+          checkAssociativeLaw (fast 2 $ embed "a") (fast 3 $ embed "b") (fast 5 $ embed "c")
 
-    --   it "should work for fast 2" $ do
-    --     (fast 2 pat) (MkInterval 0 0.5) `shouldBe` [MkSignalEvent (MkInterval 0 0.5) (pure ())]
-    --     (fast 2 pat) (MkInterval 0 1) `shouldBe`   [MkSignalEvent (MkInterval 0 0.5) (pure ()), MkSignalEvent (MkInterval 0.5 1) (pure ())]
-    --     (fast 2 pat) (MkInterval 1 2) `shouldBe`   [MkSignalEvent (MkInterval 1 1.5) (pure ()), MkSignalEvent (MkInterval 1.5 2) (pure ())]
+    describe "fast" $ do
+      let pat = embed ()
+      it "should noop for fast 1" $ do
+        signal (fast 1 pat) (0, 1)  `shouldBe` signal pat (0, 1)
 
-    --   it "should work for fast 3" $ do
-    --     (fast 3 pat) (MkInterval 0 (1/3)) `shouldBe`     [MkSignalEvent (MkInterval 0 (1/3)) (pure ())]
-    --     (fast 3 pat) (MkInterval 0 1) `shouldBe`         [MkSignalEvent (MkInterval 0 (1/3)) (pure ()), MkSignalEvent (MkInterval (1/3) (2/3)) (pure ()), MkSignalEvent (MkInterval (2/3) 1) (pure ())]
-    --     (fast 3 pat) (MkInterval (2/3) (4/3)) `shouldBe` [MkSignalEvent (MkInterval (2/3) 1) (pure ()), MkSignalEvent (MkInterval 1 (4/3)) (pure ())]
+      it "should work for fast 2" $ do
+        signal (fast 2 pat) (0, 0.5) `shouldBe` [MkEvent (0, 0.5) ()]
+        signal (fast 2 pat) (0, 1) `shouldBe`   [MkEvent (0, 0.5) (), MkEvent (0.5, 1) ()]
+        signal (fast 2 pat) (1, 2) `shouldBe`   [MkEvent (1, 1.5) (), MkEvent (1.5, 2) ()]
 
-    --   it "should noop for fast 0.5" $ do
-    --     (fast 0.5 pat) (MkInterval 0 1) `shouldBe` [MkSignalEvent (MkInterval 0 2) (pure ())]
-    --     (fast 0.5 pat) (MkInterval 0 2) `shouldBe` [MkSignalEvent (MkInterval 0 2) (pure ())]
+      it "should work for fast 3" $ do
+        signal (fast 3 pat) (0, (1/3)) `shouldBe` [MkEvent (0, (1/3)) ()]
+        signal (fast 3 pat) (0, 1) `shouldBe`     [MkEvent (0, (1/3)) (), MkEvent ((1/3), (2/3)) (), MkEvent ((2/3), 1) ()]
+        signal (fast 3 pat) ((2/3), (4/3)) `shouldBe` [MkEvent ((2/3), 1) (), MkEvent (1, (4/3)) ()]
+
+      it "should work for fast 0.5" $ do
+        signal (fast 0.5 pat) (0, 1) `shouldBe` [MkEvent (0, 2) ()]
+        signal (fast 0.5 pat) (0, 2) `shouldBe` [MkEvent (0, 2) ()]
+
+      it "should work with monoid" $ do
+        signal ((fast 2 $ embed "a") <> (embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
+        signal ((embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
+        signal ((fast 2 $ embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
 
     -- describe "shift" $ do
     --   let pat = embed ()
