@@ -65,13 +65,13 @@ spec = do
     --     (pat (MkInterval 0 0.3) <> pat (MkInterval 0.3 1.3) <> pat (MkInterval 1.3 2)) `shouldBe` pat (MkInterval 0 2)
 
     describe "split" $ do
-      it "works" $ do
+      it "works overlapped 1" $ do
         let
           eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
           eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
         (eventX `split` eventY) `shouldBe` [ MkEvent { query = MkInterval 0 1, payload = "HelloWorld" } ]
 
-      it "works 2" $ do
+      it "works overlapped 2" $ do
         let
           eventX = MkEvent { query = MkInterval 0 0.5, payload = "Hello"}
           eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
@@ -80,7 +80,7 @@ spec = do
           , MkEvent { query = MkInterval 0.5 1, payload = "World" }
           ]
 
-      it "works 3" $ do
+      it "works overlapped 3" $ do
         let
           eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
           eventY = MkEvent { query = MkInterval 0 0.5, payload = "World"}
@@ -89,7 +89,7 @@ spec = do
           , MkEvent { query = MkInterval 0.5 1, payload = "Hello" }
           ]
 
-      it "works 4" $ do
+      it "works overlapped 4" $ do
         let
           eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
           eventY = MkEvent { query = MkInterval 0.5 1, payload = "World"}
@@ -98,13 +98,50 @@ spec = do
           , MkEvent { query = MkInterval 0.5 1, payload = "HelloWorld" }
           ]
 
-      it "works 5" $ do
+      it "works overlapped 5" $ do
         let
           eventX = MkEvent { query = MkInterval 0.5 1, payload = "Hello"}
           eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
         (eventX `split` eventY) `shouldBe`
           [ MkEvent { query = MkInterval 0 0.5, payload = "World" }
           , MkEvent { query = MkInterval 0.5 1, payload = "HelloWorld" }
+          ]
+
+      it "works overlapped 6" $ do
+        let
+          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
+          eventY = MkEvent { query = MkInterval 0.25 0.75, payload = "World"}
+        (eventX `split` eventY) `shouldBe`
+          [ MkEvent { query = MkInterval 0 0.25, payload = "Hello" }
+          , MkEvent { query = MkInterval 0.25 0.75, payload = "HelloWorld" }
+          , MkEvent { query = MkInterval 0.75 1, payload = "Hello" }
+          ]
+
+      it "works when there are no overlaps" $ do
+        let
+          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
+          eventY = MkEvent { query = MkInterval 1 2, payload = "World"}
+        (eventX `split` eventY) `shouldBe`
+          [ MkEvent { query = MkInterval 0 1, payload = "Hello" }
+          , MkEvent { query = MkInterval 1 2, payload = "World" }
+          ]
+
+      it "works when there are no overlaps 2" $ do
+        let
+          eventX = MkEvent { query = MkInterval 0 1, payload = "Hello"}
+          eventY = MkEvent { query = MkInterval 2 3, payload = "World"}
+        (eventX `split` eventY) `shouldBe`
+          [ MkEvent { query = MkInterval 0 1, payload = "Hello" }
+          , MkEvent { query = MkInterval 2 3, payload = "World" }
+          ]
+
+      it "works when there are no overlaps 3" $ do
+        let
+          eventX = MkEvent { query = MkInterval 2 3, payload = "Hello"}
+          eventY = MkEvent { query = MkInterval 0 1, payload = "World"}
+        (eventX `split` eventY) `shouldBe`
+          [ MkEvent { query = MkInterval 0 1, payload = "World" }
+          , MkEvent { query = MkInterval 2 3, payload = "Hello" }
           ]
 
     -- describe "fast" $ do

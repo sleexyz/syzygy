@@ -59,55 +59,34 @@ instance QC.Arbitrary a => QC.Arbitrary (Event a) where
     return MkEvent {query, payload}
 
 split :: forall a. Monoid a => Event a -> Event a -> [Event a]
-split x y =
-  let
+split x y = headX <> headY <> overlap <> tailY <> tailX
+  where
     MkEvent { query = MkInterval startX endX, payload = payloadX } = x
     MkEvent { query = MkInterval startY endY, payload = payloadY } = y
-    overlap =
-      let
+    overlap = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX <> payloadY }
+      where
         start = max startX startY
         end = min endX endY
-      in
-        -- if start > end then [] else
-        return $ MkEvent { query = MkInterval start end, payload = payloadX <> payloadY }
 
-    tailEndY =
-      let
-        start = endX
+    tailY = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadY }
+      where
+        start = max startY endX
         end = endY
-      in
-        if start >= end
-        then []
-        else return $ MkEvent { query = MkInterval start end, payload = payloadY }
 
-    tailEndX =
-      let
-        start = endY
+    tailX = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX }
+      where
+        start = max startX endY
         end = endX
-      in
-        if start >= end
-        then []
-        else return $ MkEvent { query = MkInterval start end, payload = payloadX }
 
-    headEndX =
-      let
+    headX = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadX }
+      where
         start = startX
-        end = startY
-      in
-        if start >= end
-        then []
-        else return $ MkEvent { query = MkInterval start end, payload = payloadX }
+        end = min endX startY
 
-    headEndY =
-      let
+    headY = if start >= end then [] else return $ MkEvent { query = MkInterval start end, payload = payloadY }
+      where
         start = startY
-        end = startX
-      in
-        if start >= end
-        then []
-        else return $ MkEvent { query = MkInterval start end, payload = payloadY }
-  in
-    headEndX <> headEndY <> overlap <> tailEndY <> tailEndX
+        end = min startX endY
 
 -- embed :: a -> Signal a
 -- embed x = pruneSignal $ \(MkInterval queryStart queryEnd) -> do
@@ -116,30 +95,6 @@ split x y =
 --     end = (fromIntegral @Integer) . ceiling $ queryEnd
 --   beat <- [start..end - 1]
 --   return MkSignalEvent { support = MkInterval beat (beat + 1), event = pure x }
-
--- split :: forall a. Monoid a => SignalEvent a -> SignalEvent a -> [SignalEvent a]
--- split f x =
---   let
---     startX :: Time
---     endX :: Time
---     MkSignalEvent { onset = startX, event = MkEvent { query = queryX, payload = payloadX } } = x
---     endX = startX + dur queryX
-
---     startY :: Time
---     endY :: Time
---     MkSignalEvent { onset = startY , event = MkEvent { query = queryY, payload = payloadY } } = f
---     endY = startY + dur queryY
-
---     overlap :: [SignalEvent a]
---     overlap =
---       let
---         start = max startX startY
---         end = min endX endY
---       in
---         [ MkSignalEvent { onset = start, event = MkEvent {query = queryX, payload = payloadX <> payloadY } } ]
---   in
---     overlap
-
 
 -- pruneSignal :: Signal a -> Signal a
 -- pruneSignal signal (MkInterval queryStart queryEnd) = filter inBounds $ signal (MkInterval queryStart queryEnd)
