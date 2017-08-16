@@ -23,6 +23,10 @@ library
   build-depends:
       base >= 4.7 && < 5
     , profunctors
+    , vivid-osc
+    , bytestring
+    , time
+    , network
   exposed-modules:
       Syzygy
   other-modules:
@@ -37,6 +41,10 @@ test-suite syzygy-test
   build-depends:
       base >= 4.7 && < 5
     , profunctors
+    , vivid-osc
+    , bytestring
+    , time
+    , network
     , syzygy
     , hspec
     , QuickCheck

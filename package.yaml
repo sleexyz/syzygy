@@ -12,6 +12,10 @@ extra-source-files:
 dependencies:
   - base >= 4.7 && < 5
   - profunctors
+  - vivid-osc
+  - bytestring
+  - time
+  - network
 
 library:
   source-dirs: src

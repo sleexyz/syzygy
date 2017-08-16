@@ -9,93 +9,19 @@ module SyzygySpec where
 import Test.Hspec
 import Syzygy
 import Data.Monoid ((<>))
+import Data.Function ((&))
+import qualified Data.Time as Time
 import qualified Test.QuickCheck as QC
+import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar)
+
+-- FIXME: write better hspec matcher
+shouldBeAround :: (Ord a, Num a) => a -> (a, a) -> IO ()
+shouldBeAround value (expectedValue, tolerance) =
+  abs (value - expectedValue) < tolerance `shouldBe` True
 
 spec :: Spec
 spec = do
   describe "Syzygy" $ do
-
-    describe "Event" $ do
-      describe "combineEvent" $ do
-        it "works overlapped 1" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (0, 1), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe` [ MkEvent { query = (0, 1), payload = "HelloWorld" } ]
-
-        it "works overlapped 2" $ do
-          let
-            eventX = MkEvent { query = (0, 0.5), payload = "Hello"}
-            eventY = MkEvent { query = (0, 1), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 0.5), payload = "HelloWorld" }
-            , MkEvent { query = (0.5, 1), payload = "World" }
-            ]
-
-        it "works overlapped 3" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (0, 0.5), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 0.5), payload = "HelloWorld" }
-            , MkEvent { query = (0.5, 1), payload = "Hello" }
-            ]
-
-        it "works overlapped 4" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (0.5, 1), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 0.5), payload = "Hello" }
-            , MkEvent { query = (0.5, 1), payload = "HelloWorld" }
-            ]
-
-        it "works overlapped 5" $ do
-          let
-            eventX = MkEvent { query = (0.5, 1), payload = "Hello"}
-            eventY = MkEvent { query = (0, 1), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 0.5), payload = "World" }
-            , MkEvent { query = (0.5, 1), payload = "HelloWorld" }
-            ]
-
-        it "works overlapped 6" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (0.25, 0.75), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 0.25), payload = "Hello" }
-            , MkEvent { query = (0.25, 0.75), payload = "HelloWorld" }
-            , MkEvent { query = (0.75, 1), payload = "Hello" }
-            ]
-
-        it "works when there are no overlaps" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (1, 2), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 1), payload = "Hello" }
-            , MkEvent { query = (1, 2), payload = "World" }
-            ]
-
-        it "works when there are no overlaps 2" $ do
-          let
-            eventX = MkEvent { query = (0, 1), payload = "Hello"}
-            eventY = MkEvent { query = (2, 3), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 1), payload = "Hello" }
-            , MkEvent { query = (2, 3), payload = "World" }
-            ]
-
-        it "works when there are no overlaps 3" $ do
-          let
-            eventX = MkEvent { query = (2, 3), payload = "Hello"}
-            eventY = MkEvent { query = (0, 1), payload = "World"}
-          (eventX `combineEvent` eventY) `shouldBe`
-            [ MkEvent { query = (0, 1), payload = "World" }
-            , MkEvent { query = (2, 3), payload = "Hello" }
-            ]
-
     describe "Signal" $ do
       describe "embed" $ do
         let pat = embed ()
@@ -106,10 +32,10 @@ spec = do
           signal pat (0.5, 2.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 2) (), MkEvent (2, 3) ()]
 
         it "starts of events should be less than query ends" $ QC.property $ \query@(_, end) ->
-          [] == filter (\MkEvent { query = (s, _) } -> s >= end) (signal pat query)
+          [] == filter (\MkEvent { interval = (s, _) } -> s >= end) (signal pat query)
 
         it "ends of events should be greater than query starts" $ QC.property $ \query@(start, _) ->
-          [] == filter (\MkEvent { query = (_, e) } -> e <= start) (signal pat query)
+          [] == filter (\MkEvent { interval = (_, e) } -> e <= start) (signal pat query)
 
         it "should have transparently divisible queries when pruned" $ do
           let pat = pruneSignal $ embed ()
@@ -160,11 +86,6 @@ spec = do
         signal (fast 0.5 pat) (0, 1) `shouldBe` [MkEvent (0, 2) ()]
         signal (fast 0.5 pat) (0, 2) `shouldBe` [MkEvent (0, 2) ()]
 
-      it "should work with monoid" $ do
-        signal ((fast 2 $ embed "a") <> (embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
-        signal ((embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
-        signal ((fast 2 $ embed "a") <> (fast 2 $ embed "b")) (0, 1) `shouldBe` [MkEvent (0, 0.5) "ab", MkEvent (0.5, 1) "ab"]
-
     describe "shift" $ do
       let pat = embed ()
       it "should noop for shift 0" $ do
@@ -196,3 +117,53 @@ spec = do
       it "should stack patterns, shifted" $ do
         signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
         signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
+
+    describe "doOnce" $ do
+
+      it "does the action with millisecond accuracy" $ do
+        start <- Time.getCurrentTime
+        logRef <- newMVar [start]
+        doOnce 60 $ modifyMVar_ logRef $ \log -> do
+          t <- Time.getCurrentTime
+          return $ t : log
+        (end:_) <- readMVar logRef
+        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 1e-3)
+
+    describe "querySignalNow" $ do
+      let
+        cps :: Rational
+        cps = 60
+
+        query :: Interval
+        query = (0, 1)
+
+        sig :: Signal String
+        sig = pruneSignal $ fast 3 $ embed "hello"
+
+        pureResult :: [Event String]
+        pureResult = signal sig query
+
+      it "returns the same payloads from querying the signal" $ do
+        let
+          expectedPayloads :: [String]
+          expectedPayloads = pureResult & fmap payload
+        now <- Time.getCurrentTime
+        let oscEvents = querySignal now cps query sig
+        (oscEvents & fmap snd) `shouldBe` expectedPayloads
+
+      it "returns the correct future timestamps" $ do
+        now <- Time.getCurrentTime
+        let
+          event1, event2, event3 :: (Time.UTCTime, String)
+          [event1, event2, event3] = querySignal now cps query sig
+
+          -- | Difference from now in seconds, with a picosecond tolerance
+          shouldExpectDifferenceFromNow :: (Time.UTCTime, a) -> Time.NominalDiffTime -> IO ()
+          shouldExpectDifferenceFromNow oscEvent difference = do
+              let
+                (futureTimestamp, _) = oscEvent
+              (futureTimestamp `Time.diffUTCTime` now) `shouldBeAround` (difference, 1e-9)
+
+        event1 `shouldExpectDifferenceFromNow` (1/60 * 0/3)
+        event2 `shouldExpectDifferenceFromNow` (1/60 * 1/3)
+        event3 `shouldExpectDifferenceFromNow` (1/60 * 2/3)
