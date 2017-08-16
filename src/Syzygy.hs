@@ -109,8 +109,8 @@ toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [R
 data Env = MkEnv
   { action :: Rational -> IO ()
   , superDirtSocket :: Network.Socket
-  , beatRef :: MVar Rational
-  , signalRef :: MVar (Signal String)
+  , clockRef :: MVar Rational
+  , signalRef :: MVar (Signal BS.ByteString)
   }
 
 makeEnv :: IO Env
@@ -119,29 +119,31 @@ makeEnv = do
   superDirtSocket <- Network.socket (Network.addrFamily a) Network.Datagram Network.defaultProtocol
   Network.connect superDirtSocket (Network.addrAddress a)
 
-  beatRef <- newMVar (0 :: Rational)
-  signalRef <- newMVar (mempty :: Signal String)
+  clockRef <- newMVar (0 :: Rational)
+  signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
     action :: Rational -> IO ()
-    action = makeAction sendData beatRef signalRef
-      where
-        sendData oscEvent = do
-          NetworkBS.send superDirtSocket (toOSCBundleTest oscEvent)
-          return ()
-  return $ MkEnv { superDirtSocket, beatRef, signalRef, action }
+    action = makeAction env
+    env = MkEnv { superDirtSocket, clockRef, signalRef, action }
+  return env
 
-makeAction :: ((Time.UTCTime, BS.ByteString) -> IO ()) -> MVar Rational -> MVar (Signal String) -> Rational -> IO ()
-makeAction sendData beatRef sigRef = action
-  where
-    action :: Rational -> IO ()
-    action cps = do
-      threadDelay (floor $ recip cps * 1000000)
-      return ()
+makeAction :: Env -> Rational -> IO ()
+makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
+  threadDelay (floor $ recip cps * 1000000)
+  modifyMVar_ clockRef (return . (+1))
+  now <- Time.getCurrentTime
+  return ()
+    where
+      sendData :: Time.UTCTime -> Signal BS.ByteString -> IO ()
+      sendData startTime signal = do
+        let oscEvents = querySignal startTime 1 (0, 1) signal
+        traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
+        return ()
 
 main :: IO ()
 main = do
   putStrLn "Hello"
-  -- MkEnv {superDirtSocket, beatRef} <- makeEnv
+  -- MkEnv {superDirtSocket, clockRef} <- makeEnv
   -- forever $ doOnce 1 $ do
   --   now <- Time.getCurrentTime
   --   let

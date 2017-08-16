@@ -156,29 +156,41 @@ spec = do
 
 
   describe "action" $ do
-    describe "timing" $ do
-      let
-        mkTestEnv :: IO Env
-        mkTestEnv = do
-          beatRef <- newMVar 0
-          signalRef <- newMVar mempty
-          let action = makeAction (const $ return ()) beatRef signalRef
-          let superDirtSocket = undefined
-          return MkEnv{superDirtSocket, beatRef, signalRef, action }
+    let
+      mkTestEnv :: IO Env
+      mkTestEnv = do
+        clockRef <- newMVar 0
+        signalRef <- newMVar mempty
+        let
+          superDirtSocket = undefined
+          action = makeAction env
+          env = MkEnv{superDirtSocket, clockRef, signalRef, action }
+        return env
 
-      it "has a synchronous delay of (1/60)s when given 60cps" $ do
+    describe "timing" $ do
+      it "has a synchronous delay of (1/60)s when given rate of 60cps" $ do
         MkEnv{action} <- mkTestEnv
         start <- Time.getCurrentTime
         action 60
         end <- Time.getCurrentTime
-        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 1e-3)
+        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 2e-3)
 
-      it "has a synchronous delay of (1/30)s when given 30cps" $ do
+      it "has a synchronous delay of (1/30)s when given rate of 30cps" $ do
         MkEnv{action} <- mkTestEnv
         start <- Time.getCurrentTime
         action 30
         end <- Time.getCurrentTime
-        (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 1e-3)
+        (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 2e-3)
+
+    it "increments the clockRef by one cycle" $ do
+      MkEnv{action, clockRef} <- mkTestEnv
+      before <- readMVar clockRef
+      action 60
+      after <- readMVar clockRef
+      (after - before) `shouldBe` 1
+
+    it "sends data to SuperDirt" $ do
+      pending
 
   describe "when running the action on loop" $ do
     it "has minimal clock drift" $ pending
