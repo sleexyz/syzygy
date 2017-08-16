@@ -118,35 +118,21 @@ spec = do
         signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
         signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
 
-    describe "doOnce" $ do
-
-      it "does the action with millisecond accuracy" $ do
-        start <- Time.getCurrentTime
-        logRef <- newMVar [start]
-        doOnce 60 $ modifyMVar_ logRef $ \log -> do
-          t <- Time.getCurrentTime
-          return $ t : log
-        (end:_) <- readMVar logRef
-        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 1e-3)
-
     describe "querySignalNow" $ do
       let
         cps :: Rational
-        cps = 60
+        cps = 1
 
         query :: Interval
         query = (0, 1)
 
         sig :: Signal String
-        sig = pruneSignal $ fast 3 $ embed "hello"
+        sig = fast 3 $ embed "hello"
 
-        pureResult :: [Event String]
-        pureResult = signal sig query
-
-      it "returns the same payloads from querying the signal" $ do
+      it "returns the same payloads from querying the signal, but pruned" $ do
         let
           expectedPayloads :: [String]
-          expectedPayloads = pureResult & fmap payload
+          expectedPayloads = (signal (pruneSignal sig) query)& fmap payload
         now <- Time.getCurrentTime
         let oscEvents = querySignal now cps query sig
         (oscEvents & fmap snd) `shouldBe` expectedPayloads
@@ -164,6 +150,35 @@ spec = do
                 (futureTimestamp, _) = oscEvent
               (futureTimestamp `Time.diffUTCTime` now) `shouldBeAround` (difference, 1e-9)
 
-        event1 `shouldExpectDifferenceFromNow` (1/60 * 0/3)
-        event2 `shouldExpectDifferenceFromNow` (1/60 * 1/3)
-        event3 `shouldExpectDifferenceFromNow` (1/60 * 2/3)
+        event1 `shouldExpectDifferenceFromNow` (1 * 0/3)
+        event2 `shouldExpectDifferenceFromNow` (1 * 1/3)
+        event3 `shouldExpectDifferenceFromNow` (1 * 2/3)
+
+
+  describe "action" $ do
+    describe "timing" $ do
+      let
+        mkTestEnv :: IO Env
+        mkTestEnv = do
+          beatRef <- newMVar 0
+          signalRef <- newMVar mempty
+          let action = makeAction (const $ return ()) beatRef signalRef
+          let superDirtSocket = undefined
+          return MkEnv{superDirtSocket, beatRef, signalRef, action }
+
+      it "has a synchronous delay of (1/60)s when given 60cps" $ do
+        MkEnv{action} <- mkTestEnv
+        start <- Time.getCurrentTime
+        action 60
+        end <- Time.getCurrentTime
+        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 1e-3)
+
+      it "has a synchronous delay of (1/30)s when given 30cps" $ do
+        MkEnv{action} <- mkTestEnv
+        start <- Time.getCurrentTime
+        action 30
+        end <- Time.getCurrentTime
+        (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 1e-3)
+
+  describe "when running the action on loop" $ do
+    it "has minimal clock drift" $ pending

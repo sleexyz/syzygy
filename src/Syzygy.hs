@@ -9,12 +9,14 @@
 
 module Syzygy where
 
-import Data.Profunctor
+import Data.Profunctor (lmap, rmap)
 import Data.Function ((&))
--- import qualified Network.Socket.ByteString as SB
--- import qualified Data.ByteString as B
--- import qualified Data.ByteString.Builder as B
+import qualified Network.Socket as Network
+import qualified Network.Socket.ByteString as NetworkBS
+import qualified Data.ByteString as BS
+import qualified Data.ByteString.Builder as BS
 import Control.Concurrent (threadDelay, forkIO)
+import Control.Monad (forever)
 import Control.Concurrent.MVar
 import qualified Data.Time as Time
 
@@ -77,23 +79,15 @@ interleave sigs = MkSignal $ \query -> do
   (sig, n) <- zip sigs [0..]
   signal (shift (n/len) sig) query
 
-doOnce :: Rational -> IO () -> IO ()
-doOnce actionsPerSecond action = do
-  let
-    secondsPerAction = recip actionsPerSecond
-    picosecondsPerAction = secondsPerAction * 10^6
-  threadDelay $ floor picosecondsPerAction
-  action
-
 -- | Query a signal for once cycle at the given rate, relative to some absolute time
 querySignal :: forall a. Time.UTCTime -> Rational -> Interval -> Signal a -> [(Time.UTCTime, a)]
-querySignal now cps query MkSignal{signal} = fmap formatEvent events
+querySignal now cps query sig = fmap formatEvent events
   where
     queryStart :: Rational
     (queryStart, _) = query
 
     events :: [Event a]
-    events = signal query
+    events = signal (pruneSignal sig) query
 
     formatEvent :: Event a -> (Time.UTCTime, a)
     formatEvent MkEvent{interval=(start, _), payload} =
@@ -103,6 +97,64 @@ querySignal now cps query MkSignal{signal} = fmap formatEvent events
       in
         (timestamp, payload)
 
+toOSCBundleTest :: (Time.UTCTime, BS.ByteString) -> BS.ByteString
+toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [Right $ OSC.OSC "/play2" message]
+  where
+    timestamp :: OSC.Timestamp
+    timestamp = OSC.utcToTimestamp time
+
+    message :: [OSC.OSCDatum]
+    message = [OSC.OSC_S "s", OSC.OSC_S sound]
+
+data Env = MkEnv
+  { action :: Rational -> IO ()
+  , superDirtSocket :: Network.Socket
+  , beatRef :: MVar Rational
+  , signalRef :: MVar (Signal String)
+  }
+
+makeEnv :: IO Env
+makeEnv = do
+  (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just "57120")
+  superDirtSocket <- Network.socket (Network.addrFamily a) Network.Datagram Network.defaultProtocol
+  Network.connect superDirtSocket (Network.addrAddress a)
+
+  beatRef <- newMVar (0 :: Rational)
+  signalRef <- newMVar (mempty :: Signal String)
+  let
+    action :: Rational -> IO ()
+    action = makeAction sendData beatRef signalRef
+      where
+        sendData oscEvent = do
+          NetworkBS.send superDirtSocket (toOSCBundleTest oscEvent)
+          return ()
+  return $ MkEnv { superDirtSocket, beatRef, signalRef, action }
+
+makeAction :: ((Time.UTCTime, BS.ByteString) -> IO ()) -> MVar Rational -> MVar (Signal String) -> Rational -> IO ()
+makeAction sendData beatRef sigRef = action
+  where
+    action :: Rational -> IO ()
+    action cps = do
+      threadDelay (floor $ recip cps * 1000000)
+      return ()
+
+main :: IO ()
+main = do
+  putStrLn "Hello"
+  -- MkEnv {superDirtSocket, beatRef} <- makeEnv
+  -- forever $ doOnce 1 $ do
+  --   now <- Time.getCurrentTime
+  --   let
+  --     signal = stack
+  --       [ fast 2 $ interleave [embed "sn", embed "bd", embed "bd"]
+  --       , fast 3 $ interleave [fast 1 $ embed "dr55", embed "bd"]
+  --       ]
+  --     oscEvents = querySignal now 1 (0, 1) signal
+  --     sendEvent = NetworkBS.send superDirtSocket . toOSCBundleTest
+  --   traverse sendEvent oscEvents
+  --   return ()
+
+-- makeBundle :: Time.UTCTime -> Signal () -> [OSC.OSCBundle]
  --   foo :: B.ByteString
  --   foo = OSC.encodeOSC $ OSC.OSC "/play2" [OSC.OSC_S "cps", OSC.OSC_I 1, OSC.OSC_S "s", OSC.OSC_S "bd"]
  -- print $ B.toLazyByteString $ B.byteStringHex foo
