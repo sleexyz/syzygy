@@ -136,7 +136,7 @@ makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
   modifyMVar_ clockRef (return . (+1))
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
-  let oscEvents = querySignal now 1 (0, 1) signal
+  let oscEvents = querySignal now cps (0, 1) signal
   traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
   threadDelay (floor $ recip cps * 1000000)
 

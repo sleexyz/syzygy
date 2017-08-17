@@ -12,11 +12,13 @@ import Syzygy
 import Data.Monoid ((<>))
 import Data.Function ((&))
 import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar, newEmptyMVar, MVar, putMVar, takeMVar)
+import Control.Concurrent.Chan
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Monad (forever)
-import qualified Data.Time as Time
-import qualified Test.QuickCheck as QC
 import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), decodeOSCBundle, OSC(..), utcToTimestamp, Timestamp(..))
+import qualified Data.Time as Time
+import qualified Data.ByteString as BS
+import qualified Test.QuickCheck as QC
 import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
 
@@ -36,6 +38,9 @@ withMockSuperDirtServer handleOSCBundle cont = do
     handleOSCBundle bundle
   portNumber <- Network.socketPort socket
   cont portNumber
+
+diffTimestamp:: Timestamp -> Timestamp -> Double
+diffTimestamp (Timestamp x) (Timestamp y) = x - y
 
 spec :: Spec
 spec = do
@@ -203,23 +208,40 @@ spec = do
       after <- readMVar clockRef
       (after - before) `shouldBe` 1
 
-    let
-      diffTimestamp:: Timestamp -> Timestamp -> Double
-      diffTimestamp (Timestamp x) (Timestamp y) = x - y
-
-    -- FIXME: use chans or something
-    it "sends data to SuperDirt" $ do
+    describe "when talking to SuperDirt" $ do
       let
-        signal = embed "bd"
-      (lastMessageRef :: MVar OSCBundle) <- newEmptyMVar
-      MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
-          putMVar lastMessageRef bundle
-      modifyMVar_ signalRef (const . return $ signal)
-      now <- Time.getCurrentTime
-      action 60
-      OSCBundle timestamp [Right message] <- takeMVar lastMessageRef
-      (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
-      message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+        cps :: Num a => a
+        cps = 60
+
+        -- | sends one cycle to the mock SuperDirt at 60cps
+        sendOneCycle :: Signal BS.ByteString -> IO (Chan OSCBundle)
+        sendOneCycle signal = do
+          (oscBundleChan :: Chan OSCBundle) <- newChan
+          MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
+              writeChan oscBundleChan bundle
+          modifyMVar_ signalRef (const . return $ signal)
+          action cps
+          return oscBundleChan
+
+      it "can send an event to SuperDirt" $ do
+        now <- Time.getCurrentTime
+        do
+          oscBundleChan <- sendOneCycle (embed "bd")
+          OSCBundle timestamp [Right message] <- readChan oscBundleChan
+          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
+
+      it "can send multiple event to SuperDirt in the same cycle" $ do
+        now <- Time.getCurrentTime
+        oscBundleChan <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
+        do
+          OSCBundle timestamp [Right message] <- readChan oscBundleChan
+          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+        do
+          OSCBundle timestamp [Right message] <- readChan oscBundleChan
+          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
 
   describe "when running the action on loop" $ do
     it "has minimal clock drift" $ pending
