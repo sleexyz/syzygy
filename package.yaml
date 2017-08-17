@@ -29,4 +29,5 @@ tests:
     dependencies:
       - syzygy
       - hspec
+      - hspec-expectations
       - QuickCheck

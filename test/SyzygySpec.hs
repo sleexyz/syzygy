@@ -22,11 +22,23 @@ import qualified Data.ByteString as BS
 import qualified Test.QuickCheck as QC
 import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
+import qualified Test.Hspec.Expectations
 
--- FIXME: write better hspec matcher
-shouldBeAround :: (Ord a, Num a) => a -> (a, a) -> IO ()
+shouldBeAround :: (HasCallStack, Ord a, Num a, Show a) => a -> (a, a) -> IO ()
 shouldBeAround value (expectedValue, tolerance) =
-  abs (value - expectedValue) < tolerance `shouldBe` True
+  let difference = abs (value - expectedValue)
+  in
+    if difference < tolerance
+    then return ()
+    else Test.Hspec.Expectations.expectationFailure
+      $ "expected "
+      <> show value
+      <> " to equal "
+      <> show expectedValue
+      <> " with a tolerance of "
+      <> show tolerance
+      <> ", when a difference of "
+      <> show difference <> " was found"
 
 withMockSuperDirtServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO a) -> IO a
 withMockSuperDirtServer handleOSCBundle cont = do
@@ -91,56 +103,57 @@ spec = do
           checkAssociativeLaw (embed "a") (embed "b") (embed "c")
           checkAssociativeLaw (fast 2 $ embed "a") (fast 3 $ embed "b") (fast 5 $ embed "c")
 
-    describe "fast" $ do
-      let pat = embed ()
-      it "should noop for fast 1" $ do
-        signal (fast 1 pat) (0, 1)  `shouldBe` signal pat (0, 1)
+    describe "pattern combinators" $ do
+      describe "fast" $ do
+        let pat = embed ()
+        it "should noop for fast 1" $ do
+          signal (fast 1 pat) (0, 1)  `shouldBe` signal pat (0, 1)
 
-      it "should work for fast 2" $ do
-        signal (fast 2 pat) (0, 0.5) `shouldBe` [MkEvent (0, 0.5) ()]
-        signal (fast 2 pat) (0, 1) `shouldBe`   [MkEvent (0, 0.5) (), MkEvent (0.5, 1) ()]
-        signal (fast 2 pat) (1, 2) `shouldBe`   [MkEvent (1, 1.5) (), MkEvent (1.5, 2) ()]
+        it "should work for fast 2" $ do
+          signal (fast 2 pat) (0, 0.5) `shouldBe` [MkEvent (0, 0.5) ()]
+          signal (fast 2 pat) (0, 1) `shouldBe`   [MkEvent (0, 0.5) (), MkEvent (0.5, 1) ()]
+          signal (fast 2 pat) (1, 2) `shouldBe`   [MkEvent (1, 1.5) (), MkEvent (1.5, 2) ()]
 
-      it "should work for fast 3" $ do
-        signal (fast 3 pat) (0, (1/3)) `shouldBe` [MkEvent (0, (1/3)) ()]
-        signal (fast 3 pat) (0, 1) `shouldBe`     [MkEvent (0, (1/3)) (), MkEvent ((1/3), (2/3)) (), MkEvent ((2/3), 1) ()]
-        signal (fast 3 pat) ((2/3), (4/3)) `shouldBe` [MkEvent ((2/3), 1) (), MkEvent (1, (4/3)) ()]
+        it "should work for fast 3" $ do
+          signal (fast 3 pat) (0, (1/3)) `shouldBe` [MkEvent (0, (1/3)) ()]
+          signal (fast 3 pat) (0, 1) `shouldBe`     [MkEvent (0, (1/3)) (), MkEvent ((1/3), (2/3)) (), MkEvent ((2/3), 1) ()]
+          signal (fast 3 pat) ((2/3), (4/3)) `shouldBe` [MkEvent ((2/3), 1) (), MkEvent (1, (4/3)) ()]
 
-      it "should work for fast 0.5" $ do
-        signal (fast 0.5 pat) (0, 1) `shouldBe` [MkEvent (0, 2) ()]
-        signal (fast 0.5 pat) (0, 2) `shouldBe` [MkEvent (0, 2) ()]
+        it "should work for fast 0.5" $ do
+          signal (fast 0.5 pat) (0, 1) `shouldBe` [MkEvent (0, 2) ()]
+          signal (fast 0.5 pat) (0, 2) `shouldBe` [MkEvent (0, 2) ()]
 
-    describe "shift" $ do
-      let pat = embed ()
-      it "should noop for shift 0" $ do
-        signal (shift 0 pat) (0, 1)  `shouldBe` signal pat (0, 1)
+      describe "shift" $ do
+        let pat = embed ()
+        it "should noop for shift 0" $ do
+          signal (shift 0 pat) (0, 1)  `shouldBe` signal pat (0, 1)
 
-      it "should work" $ do
-        signal (shift 0 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
-        signal (shift 0.5 pat) (0, 1) `shouldBe` [MkEvent ((-1/2), (1/2)) (), MkEvent ((1/2), (3/2)) ()]
-        signal (shift 1 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
+        it "should work" $ do
+          signal (shift 0 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
+          signal (shift 0.5 pat) (0, 1) `shouldBe` [MkEvent ((-1/2), (1/2)) (), MkEvent ((1/2), (3/2)) ()]
+          signal (shift 1 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
 
-      it "should shift forwards in time" $ do
-        signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent ((-3/4), (1/4)) (), MkEvent ((1/4), (5/4)) ()]
+        it "should shift forwards in time" $ do
+          signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent ((-3/4), (1/4)) (), MkEvent ((1/4), (5/4)) ()]
 
-    describe "stack" $ do
-      let pat = embed ()
-      it "should stack patterns" $ do
-        signal (stack [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
-          [ MkEvent ((-3/4), (1/4)) ()
-          , MkEvent ((1/4), (5/4)) ()
-          , MkEvent ((-1/2), (1/2)) ()
-          , MkEvent ((1/2), (3/2)) ()
-          ]
+      describe "stack" $ do
+        let pat = embed ()
+        it "should stack patterns" $ do
+          signal (stack [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
+            [ MkEvent ((-3/4), (1/4)) ()
+            , MkEvent ((1/4), (5/4)) ()
+            , MkEvent ((-1/2), (1/2)) ()
+            , MkEvent ((1/2), (3/2)) ()
+            ]
 
-    describe "interleave" $ do
-      let pat = embed ()
-      it "should noop for 1" $ do
-        signal (interleave [pat]) (0, 1) `shouldBe` signal pat (0, 1)
+      describe "interleave" $ do
+        let pat = embed ()
+        it "should noop for 1" $ do
+          signal (interleave [pat]) (0, 1) `shouldBe` signal pat (0, 1)
 
-      it "should stack patterns, shifted" $ do
-        signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
-        signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
+        it "should stack patterns, shifted" $ do
+          signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
+          signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
 
     describe "querySignal" $ do
       let
@@ -179,93 +192,94 @@ spec = do
         event3 `shouldExpectDifferenceFromNow` (1 * 2/3)
 
 
-  describe "action" $ do
-    let
-      mkTestEnvWithNoHandler :: IO Env
-      mkTestEnvWithNoHandler = mkTestEnv (\_ -> return ())
-
-      mkTestEnv :: (OSCBundle -> IO ()) -> IO Env
-      mkTestEnv handler = withMockSuperDirtServer handler $ makeEnv
-
-    describe "timing" $ do
-      it "has a synchronous delay of (1/60)s when given rate of 60cps" $ do
-        MkEnv{action} <- mkTestEnvWithNoHandler
-        start <- Time.getCurrentTime
-        action 60
-        end <- Time.getCurrentTime
-        (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 2e-3)
-
-      it "has a synchronous delay of (1/30)s when given rate of 30cps" $ do
-        MkEnv{action} <- mkTestEnvWithNoHandler
-        start <- Time.getCurrentTime
-        action 30
-        end <- Time.getCurrentTime
-        (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 2e-3)
-
-    it "increments the clockRef by one cycle" $ do
-      MkEnv{action, clockRef} <- mkTestEnvWithNoHandler
-      before <- readMVar clockRef
-      action 60
-      after <- readMVar clockRef
-      (after - before) `shouldBe` 1
-
-    describe "when talking to SuperDirt" $ do
+    -- FIXME: rename
+    describe "action" $ do
       let
-        cps :: Num a => a
-        cps = 60
+        mkTestEnvWithNoHandler :: IO Env
+        mkTestEnvWithNoHandler = mkTestEnv (\_ -> return ())
 
-        -- | sends one cycle to the mock SuperDirt at 60cps
-        sendOneCycle :: Signal BS.ByteString -> IO (IO (), Chan OSCBundle)
-        sendOneCycle signal = do
-          (oscBundleChan :: Chan OSCBundle) <- newChan
-          MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
-              writeChan oscBundleChan bundle
-          modifyMVar_ signalRef (const . return $ signal)
-          return (action cps, oscBundleChan)
+        mkTestEnv :: (OSCBundle -> IO ()) -> IO Env
+        mkTestEnv handler = withMockSuperDirtServer handler $ makeEnv
 
-      it "can send an event to SuperDirt" $ id @ (IO ()) $ do
-        (action, oscBundleChan) <- sendOneCycle (embed "bd")
-        now <- Time.getCurrentTime
-        do
-          action
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
+      describe "timing" $ do
+        it "has a synchronous delay of (1/60)s when given rate of 60cps" $ do
+          MkEnv{action} <- mkTestEnvWithNoHandler
+          start <- Time.getCurrentTime
+          action 60
+          end <- Time.getCurrentTime
+          (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 2e-3)
 
-      it "can send multiple event to SuperDirt in the same cycle" $ id @ (IO ()) $ do
-        (action, oscBundleChan) <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
-        now <- Time.getCurrentTime
-        do
-          action
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+        it "has a synchronous delay of (1/30)s when given rate of 30cps" $ do
+          MkEnv{action} <- mkTestEnvWithNoHandler
+          start <- Time.getCurrentTime
+          action 30
+          end <- Time.getCurrentTime
+          (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 2e-3)
 
-      it "can send multiple events in multiple cycles, when invoked multiple times" $ do
-        (action, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
-        now <- Time.getCurrentTime
-        do
-          action
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
-        do
-          action
-          do
-            OSCBundle timestamp [Right message] <- readChan oscBundleChan
-            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 3/2, 1e-3)
+      it "increments the clockRef by one cycle" $ do
+        MkEnv{action, clockRef} <- mkTestEnvWithNoHandler
+        before <- readMVar clockRef
+        action 60
+        after <- readMVar clockRef
+        (after - before) `shouldBe` 1
 
-  describe "when running the action on loop" $ do
-    it "has minimal clock drift" $ pending
+      describe "when talking to SuperDirt" $ do
+        let
+          cps :: Num a => a
+          cps = 60
+
+          -- | sends one cycle to the mock SuperDirt at 60cps
+          sendOneCycle :: Signal BS.ByteString -> IO (IO (), Chan OSCBundle)
+          sendOneCycle signal = do
+            (oscBundleChan :: Chan OSCBundle) <- newChan
+            MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
+                writeChan oscBundleChan bundle
+            modifyMVar_ signalRef (const . return $ signal)
+            return (action cps, oscBundleChan)
+
+        it "can send an event to SuperDirt" $ id @ (IO ()) $ do
+          (action, oscBundleChan) <- sendOneCycle (embed "bd")
+          now <- Time.getCurrentTime
+          do
+            action
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
+
+        it "can send multiple event to SuperDirt in the same cycle" $ id @ (IO ()) $ do
+          (action, oscBundleChan) <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
+          now <- Time.getCurrentTime
+          do
+            action
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+
+        it "can send multiple events in multiple cycles, when invoked multiple times" $ do
+          (action, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
+          now <- Time.getCurrentTime
+          do
+            action
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+          do
+            action
+            do
+              OSCBundle timestamp [Right message] <- readChan oscBundleChan
+              message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+              (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 3/2, 1e-3)
+
+    describe "when running the action on loop" $ do
+      it "has minimal clock drift" $ pending

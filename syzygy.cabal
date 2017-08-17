@@ -48,6 +48,7 @@ test-suite syzygy-test
     , network
     , syzygy
     , hspec
+    , hspec-expectations
     , QuickCheck
   other-modules:
       SyzygySpec
