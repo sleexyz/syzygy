@@ -3,6 +3,7 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
 
 module SyzygySpec where
 
@@ -10,14 +11,31 @@ import Test.Hspec
 import Syzygy
 import Data.Monoid ((<>))
 import Data.Function ((&))
+import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar, newEmptyMVar, MVar, putMVar, takeMVar)
+import Control.Concurrent (threadDelay, forkIO)
+import Control.Monad (forever)
 import qualified Data.Time as Time
 import qualified Test.QuickCheck as QC
-import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar)
+import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), decodeOSCBundle, OSC(..), utcToTimestamp, Timestamp(..))
+import qualified Network.Socket as Network
+import qualified Network.Socket.ByteString as NetworkBS
 
 -- FIXME: write better hspec matcher
 shouldBeAround :: (Ord a, Num a) => a -> (a, a) -> IO ()
 shouldBeAround value (expectedValue, tolerance) =
   abs (value - expectedValue) < tolerance `shouldBe` True
+
+withMockSuperDirtServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO a) -> IO a
+withMockSuperDirtServer handleOSCBundle cont = do
+  address <- head <$> Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show Network.aNY_PORT))
+  socket <- Network.socket (Network.addrFamily address) Network.Datagram Network.defaultProtocol
+  Network.bind socket (Network.addrAddress address)
+  forkIO $ forever $ do
+    msg <- NetworkBS.recv socket 4096
+    let Right bundle = decodeOSCBundle msg -- NOTE: partial!
+    handleOSCBundle bundle
+  portNumber <- Network.socketPort socket
+  cont portNumber
 
 spec :: Spec
 spec = do
@@ -157,40 +175,51 @@ spec = do
 
   describe "action" $ do
     let
-      mkTestEnv :: IO Env
-      mkTestEnv = do
-        clockRef <- newMVar 0
-        signalRef <- newMVar mempty
-        let
-          superDirtSocket = undefined
-          action = makeAction env
-          env = MkEnv{superDirtSocket, clockRef, signalRef, action }
-        return env
+      mkTestEnvWithNoHandler :: IO Env
+      mkTestEnvWithNoHandler = mkTestEnv (\_ -> return ())
+
+      mkTestEnv :: (OSCBundle -> IO ()) -> IO Env
+      mkTestEnv handler = withMockSuperDirtServer handler $ makeEnv
 
     describe "timing" $ do
       it "has a synchronous delay of (1/60)s when given rate of 60cps" $ do
-        MkEnv{action} <- mkTestEnv
+        MkEnv{action} <- mkTestEnvWithNoHandler
         start <- Time.getCurrentTime
         action 60
         end <- Time.getCurrentTime
         (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 2e-3)
 
       it "has a synchronous delay of (1/30)s when given rate of 30cps" $ do
-        MkEnv{action} <- mkTestEnv
+        MkEnv{action} <- mkTestEnvWithNoHandler
         start <- Time.getCurrentTime
         action 30
         end <- Time.getCurrentTime
         (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 2e-3)
 
     it "increments the clockRef by one cycle" $ do
-      MkEnv{action, clockRef} <- mkTestEnv
+      MkEnv{action, clockRef} <- mkTestEnvWithNoHandler
       before <- readMVar clockRef
       action 60
       after <- readMVar clockRef
       (after - before) `shouldBe` 1
 
+    let
+      diffTimestamp:: Timestamp -> Timestamp -> Double
+      diffTimestamp (Timestamp x) (Timestamp y) = x - y
+
+    -- FIXME: use chans or something
     it "sends data to SuperDirt" $ do
-      pending
+      let
+        signal = embed "bd"
+      (lastMessageRef :: MVar OSCBundle) <- newEmptyMVar
+      MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
+          putMVar lastMessageRef bundle
+      modifyMVar_ signalRef (const . return $ signal)
+      now <- Time.getCurrentTime
+      action 60
+      OSCBundle timestamp [Right message] <- takeMVar lastMessageRef
+      (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
+      message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
 
   describe "when running the action on loop" $ do
     it "has minimal clock drift" $ pending

@@ -18,9 +18,9 @@ import qualified Data.ByteString.Builder as BS
 import Control.Concurrent (threadDelay, forkIO)
 import Control.Monad (forever)
 import Control.Concurrent.MVar
+import qualified Vivid.OSC as OSC
 import qualified Data.Time as Time
 
-import qualified Vivid.OSC as OSC
 
 type Time = Rational
 
@@ -113,12 +113,16 @@ data Env = MkEnv
   , signalRef :: MVar (Signal BS.ByteString)
   }
 
-makeEnv :: IO Env
-makeEnv = do
-  (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just "57120")
+makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
+makeLocalUDPConnection portNumber = do
+  (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show portNumber))
   superDirtSocket <- Network.socket (Network.addrFamily a) Network.Datagram Network.defaultProtocol
   Network.connect superDirtSocket (Network.addrAddress a)
+  return superDirtSocket
 
+makeEnv :: Network.PortNumber -> IO Env
+makeEnv portNumber = do
+  superDirtSocket <- makeLocalUDPConnection portNumber
   clockRef <- newMVar (0 :: Rational)
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
@@ -129,32 +133,31 @@ makeEnv = do
 
 makeAction :: Env -> Rational -> IO ()
 makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
-  threadDelay (floor $ recip cps * 1000000)
   modifyMVar_ clockRef (return . (+1))
   now <- Time.getCurrentTime
-  return ()
-    where
-      sendData :: Time.UTCTime -> Signal BS.ByteString -> IO ()
-      sendData startTime signal = do
-        let oscEvents = querySignal startTime 1 (0, 1) signal
-        traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
-        return ()
+  signal <- readMVar signalRef
+  let oscEvents = querySignal now 1 (0, 1) signal
+  traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
+  threadDelay (floor $ recip cps * 1000000)
 
 main :: IO ()
 main = do
   putStrLn "Hello"
-  -- MkEnv {superDirtSocket, clockRef} <- makeEnv
-  -- forever $ doOnce 1 $ do
-  --   now <- Time.getCurrentTime
-  --   let
-  --     signal = stack
-  --       [ fast 2 $ interleave [embed "sn", embed "bd", embed "bd"]
-  --       , fast 3 $ interleave [fast 1 $ embed "dr55", embed "bd"]
-  --       ]
-  --     oscEvents = querySignal now 1 (0, 1) signal
-  --     sendEvent = NetworkBS.send superDirtSocket . toOSCBundleTest
-  --   traverse sendEvent oscEvents
-  --   return ()
+  -- withMockSuperDirtServer handleBundle $ \port -> do
+  --   putStrLn "Hello"
+  --   MkEnv {superDirtSocket, clockRef} <- makeEnv port
+  --   forever $ do
+  --     threadDelay (floor $ recip 1 * 1000000)
+  --     now <- Time.getCurrentTime
+  --     let
+  --       signal = stack
+  --         [ fast 2 $ interleave [embed "sn", embed "bd", embed "bd"]
+  --         , fast 3 $ interleave [fast 1 $ embed "dr55", embed "bd"]
+  --         ]
+  --       oscEvents = querySignal now 1 (0, 1) signal
+  --       sendEvent = NetworkBS.send superDirtSocket . toOSCBundleTest
+  --     traverse sendEvent oscEvents
+  --     return ()
 
 -- makeBundle :: Time.UTCTime -> Signal () -> [OSC.OSCBundle]
  --   foo :: B.ByteString
