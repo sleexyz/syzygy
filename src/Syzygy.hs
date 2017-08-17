@@ -9,18 +9,17 @@
 
 module Syzygy where
 
-import Data.Profunctor (lmap, rmap)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar
+import Control.Monad (forever)
 import Data.Function ((&))
+import Data.Profunctor (lmap, rmap)
+
+import qualified Data.ByteString as BS
+import qualified Data.Time as Time
 import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
-import qualified Data.ByteString as BS
-import qualified Data.ByteString.Builder as BS
-import Control.Concurrent (threadDelay, forkIO)
-import Control.Monad (forever)
-import Control.Concurrent.MVar
 import qualified Vivid.OSC as OSC
-import qualified Data.Time as Time
-
 
 type Time = Rational
 
@@ -127,39 +126,23 @@ makeEnv portNumber = do
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
     action :: Rational -> IO ()
-    action = makeAction env
+    action = _makeAction env
     env = MkEnv { superDirtSocket, clockRef, signalRef, action }
   return env
 
-makeAction :: Env -> Rational -> IO ()
-makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
-  modifyMVar_ clockRef (return . (+1))
+_makeAction :: Env -> Rational -> IO ()
+_makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
-  let oscEvents = querySignal now cps (0, 1) signal
-  traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
+  clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
+  let oscEvents = querySignal now cps (clockVal, clockVal + 1) signal
+  _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
   threadDelay (floor $ recip cps * 1000000)
 
 main :: IO ()
 main = do
-  putStrLn "Hello"
-  -- withMockSuperDirtServer handleBundle $ \port -> do
-  --   putStrLn "Hello"
-  --   MkEnv {superDirtSocket, clockRef} <- makeEnv port
-  --   forever $ do
-  --     threadDelay (floor $ recip 1 * 1000000)
-  --     now <- Time.getCurrentTime
-  --     let
-  --       signal = stack
-  --         [ fast 2 $ interleave [embed "sn", embed "bd", embed "bd"]
-  --         , fast 3 $ interleave [fast 1 $ embed "dr55", embed "bd"]
-  --         ]
-  --       oscEvents = querySignal now 1 (0, 1) signal
-  --       sendEvent = NetworkBS.send superDirtSocket . toOSCBundleTest
-  --     traverse sendEvent oscEvents
-  --     return ()
-
--- makeBundle :: Time.UTCTime -> Signal () -> [OSC.OSCBundle]
- --   foo :: B.ByteString
- --   foo = OSC.encodeOSC $ OSC.OSC "/play2" [OSC.OSC_S "cps", OSC.OSC_I 1, OSC.OSC_S "s", OSC.OSC_S "bd"]
- -- print $ B.toLazyByteString $ B.byteStringHex foo
+  let superDirtPortNumber = 57120
+  MkEnv{signalRef, action} <- makeEnv superDirtPortNumber
+  modifyMVar_ signalRef (const . return $ embed "bd")
+  forever $ do
+    action 2

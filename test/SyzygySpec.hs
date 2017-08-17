@@ -7,15 +7,16 @@
 
 module SyzygySpec where
 
-import Test.Hspec
-import Syzygy
-import Data.Monoid ((<>))
-import Data.Function ((&))
-import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar, newEmptyMVar, MVar, putMVar, takeMVar)
-import Control.Concurrent.Chan
 import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
+import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar, newEmptyMVar, MVar, putMVar, takeMVar)
 import Control.Monad (forever)
+import Data.Function ((&))
+import Data.Monoid ((<>))
+import Syzygy
+import Test.Hspec
 import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), decodeOSCBundle, OSC(..), utcToTimestamp, Timestamp(..))
+
 import qualified Data.Time as Time
 import qualified Data.ByteString as BS
 import qualified Test.QuickCheck as QC
@@ -141,7 +142,7 @@ spec = do
         signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
         signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
 
-    describe "querySignalNow" $ do
+    describe "querySignal" $ do
       let
         cps :: Rational
         cps = 1
@@ -214,34 +215,57 @@ spec = do
         cps = 60
 
         -- | sends one cycle to the mock SuperDirt at 60cps
-        sendOneCycle :: Signal BS.ByteString -> IO (Chan OSCBundle)
+        sendOneCycle :: Signal BS.ByteString -> IO (IO (), Chan OSCBundle)
         sendOneCycle signal = do
           (oscBundleChan :: Chan OSCBundle) <- newChan
           MkEnv{action, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
               writeChan oscBundleChan bundle
           modifyMVar_ signalRef (const . return $ signal)
-          action cps
-          return oscBundleChan
+          return (action cps, oscBundleChan)
 
-      it "can send an event to SuperDirt" $ do
+      it "can send an event to SuperDirt" $ id @ (IO ()) $ do
+        (action, oscBundleChan) <- sendOneCycle (embed "bd")
         now <- Time.getCurrentTime
         do
-          oscBundleChan <- sendOneCycle (embed "bd")
-          OSCBundle timestamp [Right message] <- readChan oscBundleChan
-          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
+          action
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
 
-      it "can send multiple event to SuperDirt in the same cycle" $ do
+      it "can send multiple event to SuperDirt in the same cycle" $ id @ (IO ()) $ do
+        (action, oscBundleChan) <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
-        oscBundleChan <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
         do
-          OSCBundle timestamp [Right message] <- readChan oscBundleChan
-          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+          action
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+
+      it "can send multiple events in multiple cycles, when invoked multiple times" $ do
+        (action, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
+        now <- Time.getCurrentTime
         do
-          OSCBundle timestamp [Right message] <- readChan oscBundleChan
-          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-          (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+          action
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+        do
+          action
+          do
+            OSCBundle timestamp [Right message] <- readChan oscBundleChan
+            message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 3/2, 1e-3)
 
   describe "when running the action on loop" $ do
     it "has minimal clock drift" $ pending
