@@ -30,7 +30,6 @@ data Event a = MkEvent
   , payload :: a
   } deriving (Eq, Show, Functor)
 
--- | A signal is defined by the "integral" of a sampling function
 newtype Signal a = MkSignal { signal :: Interval -> [Event a] }
   deriving (Functor, Monoid)
 
@@ -40,7 +39,7 @@ embed x = MkSignal $ \(queryStart, queryEnd) -> do
     start = (fromIntegral @Integer) . floor $ queryStart
     end = (fromIntegral @Integer) . ceiling $ queryEnd
   beat <- [start..end - 1]
-  return MkEvent { interval = (beat, (beat + 1)), payload = x }
+  return MkEvent { interval = (beat, beat + 1), payload = x }
 
 pruneSignal :: Signal a -> Signal a
 pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
@@ -106,43 +105,46 @@ toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [R
     message = [OSC.OSC_S "s", OSC.OSC_S sound]
 
 data Env = MkEnv
-  { action :: Rational -> IO ()
+  { sendEvents :: Rational -> IO ()
   , superDirtSocket :: Network.Socket
   , clockRef :: MVar Rational
   , signalRef :: MVar (Signal BS.ByteString)
   }
 
-makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
-makeLocalUDPConnection portNumber = do
+makeEnv :: Network.PortNumber -> IO Env
+makeEnv portNumber = do
+  superDirtSocket <- _makeLocalUDPConnection portNumber
+  clockRef <- newMVar (0 :: Rational)
+  signalRef <- newMVar (mempty :: Signal BS.ByteString)
+  let
+    sendEvents :: Rational -> IO ()
+    sendEvents = _makeSendEvents env
+    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents }
+  return env
+
+_makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
+_makeLocalUDPConnection portNumber = do
   (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show portNumber))
   superDirtSocket <- Network.socket (Network.addrFamily a) Network.Datagram Network.defaultProtocol
   Network.connect superDirtSocket (Network.addrAddress a)
   return superDirtSocket
 
-makeEnv :: Network.PortNumber -> IO Env
-makeEnv portNumber = do
-  superDirtSocket <- makeLocalUDPConnection portNumber
-  clockRef <- newMVar (0 :: Rational)
-  signalRef <- newMVar (mempty :: Signal BS.ByteString)
-  let
-    action :: Rational -> IO ()
-    action = _makeAction env
-    env = MkEnv { superDirtSocket, clockRef, signalRef, action }
-  return env
-
-_makeAction :: Env -> Rational -> IO ()
-_makeAction MkEnv{superDirtSocket, clockRef, signalRef} cps = do
+_makeSendEvents :: Env -> Rational -> IO ()
+_makeSendEvents MkEnv{superDirtSocket, clockRef, signalRef} cps = do
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
   clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
   let oscEvents = querySignal now cps (clockVal, clockVal + 1) signal
   _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
-  threadDelay (floor $ recip cps * 1000000)
+  delayOneCycle cps
+
+delayOneCycle :: Rational -> IO ()
+delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
 
 main :: IO ()
 main = do
   let superDirtPortNumber = 57120
-  MkEnv{signalRef, action} <- makeEnv superDirtPortNumber
+  MkEnv{signalRef, sendEvents } <- makeEnv superDirtPortNumber
   modifyMVar_ signalRef (const . return $ embed "bd")
   forever $ do
-    action 2
+    sendEvents 2
