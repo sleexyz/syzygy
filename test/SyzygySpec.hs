@@ -204,7 +204,7 @@ spec = do
             modifyMVar_ signalRef (const . return $ signal)
             return (sendEvents cps, oscBundleChan)
 
-        it "can send an event to SuperDirt" $ id @ (IO ()) $ do
+        it "can send an event to SuperDirt" $ do
           (sendEvents, oscBundleChan) <- sendOneCycle (embed "bd")
           now <- Time.getCurrentTime
           do
@@ -214,7 +214,7 @@ spec = do
               message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
               (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
 
-        it "can send multiple event to SuperDirt in the same cycle" $ id @ (IO ()) $ do
+        it "can send multiple event to SuperDirt in the same cycle" $ do
           (sendEvents, oscBundleChan) <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
           now <- Time.getCurrentTime
           do
