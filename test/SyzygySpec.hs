@@ -4,6 +4,7 @@
 {-# LANGUAGE TupleSections #-}
 {-# LANGUAGE NamedFieldPuns #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module SyzygySpec where
 
@@ -162,31 +163,31 @@ spec = do
 
     describe "sendEvents" $ do
       let
-        mkTestEnvWithNoHandler :: IO Env
-        mkTestEnvWithNoHandler = mkTestEnv (\_ -> return ())
+        mkTestEnvWithNoHandler :: Rational -> IO Env
+        mkTestEnvWithNoHandler cps = mkTestEnv cps (\_ -> return ())
 
-        mkTestEnv :: (OSCBundle -> IO ()) -> IO Env
-        mkTestEnv handler = withMockOSCServer handler $ makeEnv
+        mkTestEnv :: Rational -> (OSCBundle -> IO ()) -> IO Env
+        mkTestEnv cps handler = withMockOSCServer handler $ \portNumber -> makeEnv MkConfig{portNumber, cps}
 
       describe "timing" $ do
         it "has a synchronous delay of (1/60)s when given rate of 60cps" $ do
-          MkEnv{sendEvents} <- mkTestEnvWithNoHandler
+          MkEnv{sendEvents} <- mkTestEnvWithNoHandler 60
           start <- Time.getCurrentTime
-          sendEvents 60
+          sendEvents
           end <- Time.getCurrentTime
           (end `Time.diffUTCTime` start) `shouldBeAround` (1/60, 2e-3)
 
         it "has a synchronous delay of (1/30)s when given rate of 30cps" $ do
-          MkEnv{sendEvents} <- mkTestEnvWithNoHandler
+          MkEnv{sendEvents} <- mkTestEnvWithNoHandler 30
           start <- Time.getCurrentTime
-          sendEvents 30
+          sendEvents
           end <- Time.getCurrentTime
           (end `Time.diffUTCTime` start) `shouldBeAround` (1/30, 2e-3)
 
       it "increments the clockRef by one cycle" $ do
-        MkEnv{sendEvents, clockRef} <- mkTestEnvWithNoHandler
+        MkEnv{sendEvents, clockRef} <- mkTestEnvWithNoHandler 60
         before <- readMVar clockRef
-        sendEvents 60
+        sendEvents
         after <- readMVar clockRef
         (after - before) `shouldBe` 1
 
@@ -199,10 +200,10 @@ spec = do
           sendOneCycle :: Signal BS.ByteString -> IO (IO (), Chan OSCBundle)
           sendOneCycle signal = do
             (oscBundleChan :: Chan OSCBundle) <- newChan
-            MkEnv{sendEvents, clockRef, signalRef} <- mkTestEnv $ \bundle -> do
+            MkEnv{sendEvents, signalRef} <- mkTestEnv cps $ \bundle -> do
                 writeChan oscBundleChan bundle
             modifyMVar_ signalRef (const . return $ signal)
-            return (sendEvents cps, oscBundleChan)
+            return (sendEvents, oscBundleChan)
 
         it "can send an event to SuperDirt" $ do
           (sendEvents, oscBundleChan) <- sendOneCycle (embed "bd")

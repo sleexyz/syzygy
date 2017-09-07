@@ -6,6 +6,7 @@
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Syzygy where
 
@@ -105,21 +106,28 @@ toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [R
     message = [OSC.OSC_S "s", OSC.OSC_S sound]
 
 data Env = MkEnv
-  { sendEvents :: Rational -> IO ()
+  { sendEvents :: IO ()
   , superDirtSocket :: Network.Socket
   , clockRef :: MVar Rational
   , signalRef :: MVar (Signal BS.ByteString)
+  , cps :: Rational
   }
 
-makeEnv :: Network.PortNumber -> IO Env
-makeEnv portNumber = do
+data Config = MkConfig
+  { portNumber :: Network.PortNumber
+  , cps :: Rational
+  }
+
+makeEnv :: Config -> IO Env
+makeEnv MkConfig{portNumber, cps} = do
   superDirtSocket <- _makeLocalUDPConnection portNumber
   clockRef <- newMVar (0 :: Rational)
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
-    sendEvents :: Rational -> IO ()
+    sendEvents :: IO ()
     sendEvents = _makeSendEvents env
-    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents }
+
+    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents, cps }
   return env
 
 _makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
@@ -129,8 +137,8 @@ _makeLocalUDPConnection portNumber = do
   Network.connect superDirtSocket (Network.addrAddress a)
   return superDirtSocket
 
-_makeSendEvents :: Env -> Rational -> IO ()
-_makeSendEvents MkEnv{superDirtSocket, clockRef, signalRef} cps = do
+_makeSendEvents :: Env -> IO ()
+_makeSendEvents MkEnv{superDirtSocket, clockRef, signalRef, cps} = do
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
   clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
@@ -138,13 +146,16 @@ _makeSendEvents MkEnv{superDirtSocket, clockRef, signalRef} cps = do
   _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
   delayOneCycle cps
 
+-- | Test me
 delayOneCycle :: Rational -> IO ()
 delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
 
 main :: IO ()
 main = do
-  let superDirtPortNumber = 57120
-  MkEnv{signalRef, sendEvents } <- makeEnv superDirtPortNumber
+  let portNumber = 57121
+  let cps = 1
+  MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {cps, portNumber}
   modifyMVar_ signalRef (const . return $ embed "bd")
   forever $ do
-    sendEvents 2
+    sendEvents
+    delayOneCycle cps
