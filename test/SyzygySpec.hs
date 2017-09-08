@@ -8,39 +8,37 @@
 
 module SyzygySpec where
 
-import Control.Concurrent (threadDelay, forkIO)
 import Control.Concurrent.Chan (Chan, newChan, writeChan, readChan)
-import Control.Concurrent.MVar (newMVar, modifyMVar_, readMVar, newEmptyMVar, MVar, putMVar, takeMVar)
-import Control.Monad (forever)
+import Control.Concurrent.MVar (modifyMVar_, readMVar)
 import Data.Function ((&))
 import Data.Monoid ((<>))
 import Syzygy
 import TestUtils (shouldBeAround, withMockOSCServer, diffTimestamp)
 import Test.Hspec
-import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), decodeOSCBundle, OSC(..), utcToTimestamp, Timestamp(..))
+import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), OSC(..), utcToTimestamp )
 
 import qualified Data.Time as Time
 import qualified Data.ByteString as BS
 import qualified Test.QuickCheck as QC
-import qualified Network.Socket as Network
-import qualified Network.Socket.ByteString as NetworkBS
 
 spec :: Spec
 spec = do
   describe "Syzygy" $ do
     describe "Signal" $ do
       describe "embed" $ do
-        let pat = embed ()
         it "should work" $ do
+          let pat = embed ()
           signal pat (0, 1) `shouldBe`     [MkEvent (0, 1) ()]
           signal pat (0, 2) `shouldBe`     [MkEvent (0, 1) (), MkEvent (1, 2) ()]
           signal pat (0.5, 1.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 2) ()]
           signal pat (0.5, 2.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 2) (), MkEvent (2, 3) ()]
 
         it "starts of events should be less than query ends" $ QC.property $ \query@(_, end) ->
+          let pat = embed () in
           [] == filter (\MkEvent { interval = (s, _) } -> s >= end) (signal pat query)
 
         it "ends of events should be greater than query starts" $ QC.property $ \query@(start, _) ->
+          let pat = embed () in
           [] == filter (\MkEvent { interval = (_, e) } -> e <= start) (signal pat query)
 
         it "should have transparently divisible queries when pruned" $ do
@@ -57,8 +55,13 @@ spec = do
             where
               query = (0, 1)
 
+          checkLeftUnitalLaw :: Signal () -> IO ()
           checkLeftUnitalLaw x = (mempty <> x) `shouldEqualSignal` x
+
+          checkRightUnitalLaw :: Signal () -> IO ()
           checkRightUnitalLaw x = (x <> mempty) `shouldEqualSignal` x
+
+          checkAssociativeLaw :: Signal String -> Signal String -> Signal String -> IO ()
           checkAssociativeLaw x y z = (x <> (y <> z)) `shouldEqualSignal` ((x <> y) <> z)
 
         it "obeys the left unital law" $ do
@@ -186,10 +189,10 @@ spec = do
 
       it "increments the clockRef by one cycle" $ do
         MkEnv{sendEvents, clockRef} <- mkTestEnvWithNoHandler 60
-        before <- readMVar clockRef
+        timeBefore <- readMVar clockRef
         sendEvents
-        after <- readMVar clockRef
-        (after - before) `shouldBe` 1
+        timeAfter <- readMVar clockRef
+        (timeAfter - timeBefore) `shouldBe` 1
 
       describe "when talking to SuperDirt" $ do
         let

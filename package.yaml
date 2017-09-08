@@ -18,12 +18,13 @@ dependencies:
   - network
 
 library:
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror
   source-dirs: src
   main: Syzygy.hs
 
 tests:
   syzygy-test:
-    ghc-options: -threaded -rtsopts -with-rtsopts=-N
+    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror
     main: Spec.hs
     source-dirs: test
     dependencies:

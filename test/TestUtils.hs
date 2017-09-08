@@ -1,10 +1,10 @@
 module TestUtils where
 
-import Control.Concurrent (threadDelay, forkIO)
+import Control.Concurrent (forkIO)
 import Control.Monad (forever)
 import Data.Monoid ((<>))
 import Test.Hspec
-import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), decodeOSCBundle, OSC(..), utcToTimestamp, Timestamp(..))
+import Vivid.OSC (OSCBundle(..), decodeOSCBundle, Timestamp(..))
 
 import qualified Test.Hspec.Expectations
 import qualified Network.Socket as Network
@@ -32,7 +32,7 @@ withMockOSCServer handleOSCBundle cont = do
   address <- head <$> Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show Network.aNY_PORT))
   socket <- Network.socket (Network.addrFamily address) Network.Datagram Network.defaultProtocol
   Network.bind socket (Network.addrAddress address)
-  forkIO $ forever $ do
+  _ <- forkIO $ forever $ do
     msg <- NetworkBS.recv socket 4096
     let Right bundle = decodeOSCBundle msg -- NOTE: partial!
     handleOSCBundle bundle
