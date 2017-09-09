@@ -53,7 +53,7 @@ shift t MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
       & lmap (\(start, end) -> (start - t, end - t ))
-      & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start + t, end + t) })
+      & (rmap . fmap) (\ev@MkEvent { interval = (start, end) } -> ev { interval = (start + t, end + t) })
 
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
@@ -61,7 +61,7 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
       & lmap (\(start, end) -> ( start * n, end * n ))
-      & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
+      & (rmap . fmap) (\ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
 -- | filter a signal by a predicate on events
 _filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
