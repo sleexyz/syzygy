@@ -110,7 +110,6 @@ data Env = MkEnv
   , superDirtSocket :: Network.Socket
   , clockRef :: MVar Rational
   , signalRef :: MVar (Signal BS.ByteString)
-  , cps :: Rational
   }
 
 data Config = MkConfig
@@ -119,7 +118,7 @@ data Config = MkConfig
   }
 
 makeEnv :: Config -> IO Env
-makeEnv config@MkConfig{portNumber, cps} = do
+makeEnv config@MkConfig{portNumber } = do
   superDirtSocket <- _makeLocalUDPConnection portNumber
   clockRef <- newMVar (0 :: Rational)
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
@@ -127,7 +126,7 @@ makeEnv config@MkConfig{portNumber, cps} = do
     sendEvents :: IO ()
     sendEvents = _makeSendEvents config env
 
-    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents, cps }
+    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents }
   return env
 
 _makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
