@@ -9,6 +9,17 @@ category:            Other
 extra-source-files:
   - README.md
 
+default-extensions:
+  - DeriveFunctor
+  - DuplicateRecordFields
+  - GeneralizedNewtypeDeriving
+  - NamedFieldPuns
+  - OverloadedStrings
+  - ScopedTypeVariables
+  - TypeApplications
+  - ViewPatterns
+
+
 dependencies:
   - base >= 4.7 && < 5
   - profunctors
@@ -16,6 +27,8 @@ dependencies:
   - bytestring
   - time
   - network
+  - alsa-core
+  - alsa-seq
 
 library:
   source-dirs: src
