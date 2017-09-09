@@ -63,20 +63,13 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
       & lmap (\(start, end) -> ( start * n, end * n ))
       & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
--- | stack in parallel
-stack :: [Signal a] -> Signal a
-stack sigs = MkSignal $ \query -> do
-  MkSignal{signal} <- sigs
-  signal query
-
-
 -- | filter a signal by a predicate on events
 _filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
 _filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
 
 -- | interleave signals within a single cycle
 interleave :: [Signal a] -> Signal a
-interleave sigs = stack $ filterAndShift <$> zip sigs [0..]
+interleave sigs = mconcat $ filterAndShift <$> zip sigs [0..]
   where
     n :: Rational
     n = fromIntegral $ length sigs
