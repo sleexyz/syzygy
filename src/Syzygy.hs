@@ -150,7 +150,7 @@ delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
 
 main :: IO ()
 main = do
-  let portNumber = 57121
+  let portNumber = 57120
   let cps = 1
   MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {cps, portNumber}
   modifyMVar_ signalRef (const . return $ embed "bd")
