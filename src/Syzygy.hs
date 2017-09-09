@@ -64,7 +64,6 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
       & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
 -- | stack in parallel
--- TODO: deprecate
 stack :: [Signal a] -> Signal a
 stack sigs = MkSignal $ \query -> do
   MkSignal{signal} <- sigs
