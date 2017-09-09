@@ -75,6 +75,15 @@ spec = do
         checkAssociativeLaw (embed "a") (embed "b") (embed "c")
         checkAssociativeLaw (fast 2 $ embed "a") (fast 3 $ embed "b") (fast 5 $ embed "c")
 
+      it "allows us to stack signals" $ do
+        let pat = embed ()
+        signal (mconcat [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
+          [ MkEvent ((-3/4), (1/4)) ()
+          , MkEvent ((1/4), (5/4)) ()
+          , MkEvent ((-1/2), (1/2)) ()
+          , MkEvent ((1/2), (3/2)) ()
+          ]
+
   describe "Pattern Combinators" $ do
     describe "fast" $ do
       let pat = embed ()
@@ -107,16 +116,6 @@ spec = do
 
       it "should shift forwards in time" $ do
         signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent ((-3/4), (1/4)) (), MkEvent ((1/4), (5/4)) ()]
-
-    describe "stack" $ do
-      let pat = embed ()
-      it "should return appropriate events" $ do
-        signal (stack [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
-          [ MkEvent ((-3/4), (1/4)) ()
-          , MkEvent ((1/4), (5/4)) ()
-          , MkEvent ((-1/2), (1/2)) ()
-          , MkEvent ((1/2), (3/2)) ()
-          ]
 
     describe "_filterSignal" $ do
       let
