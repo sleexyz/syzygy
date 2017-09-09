@@ -2,7 +2,8 @@ resolver: lts-9.0
 
 packages:
 - '.'
-extra-deps: []
+extra-deps:
+- vivid-osc-0.3.0.0
 
 flags: {}
 

@@ -3,64 +3,36 @@
 {-# LANGUAGE ViewPatterns #-}
 {-# LANGUAGE RankNTypes #-}
 {-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE DuplicateRecordFields #-}
 
 module Syzygy where
 
-import Data.Profunctor
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.MVar
+import Control.Monad (forever)
 import Data.Function ((&))
-import Data.Monoid
+import Data.Profunctor (lmap, rmap)
+
+import qualified Data.ByteString as BS
+import qualified Data.Time as Time
+import qualified Network.Socket as Network
+import qualified Network.Socket.ByteString as NetworkBS
+import qualified Vivid.OSC as OSC
 
 type Time = Rational
 
 type Interval = (Time, Time)
 
 data Event a = MkEvent
-  { query :: (Time, Time)
+  { interval :: (Time, Time)
   , payload :: a
   } deriving (Eq, Show, Functor)
 
-newtype Signal a = MkSignal { signal :: Interval -> [Event a] } -- A signal is defined by the "integral" of a sampling function
-
-
-combineEvent :: forall a. Monoid a => Event a -> Event a -> [Event a]
-combineEvent x y = headX <> headY <> overlap <> tailY <> tailX
-  where
-    MkEvent { query = (startX, endX), payload = payloadX } = x
-    MkEvent { query = (startY, endY), payload = payloadY } = y
-    overlap = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX <> payloadY }
-      where
-        start = max startX startY
-        end = min endX endY
-
-    tailY = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadY }
-      where
-        start = max startY endX
-        end = endY
-
-    tailX = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX }
-      where
-        start = max startX endY
-        end = endX
-
-    headX = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX }
-      where
-        start = startX
-        end = min endX startY
-
-    headY = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadY }
-      where
-        start = startY
-        end = min startX endY
-
-combineEventOverlap :: forall a. Monoid a => Event a -> Event a -> [Event a]
-combineEventOverlap x y = overlap
-  where
-    MkEvent { query = (startX, endX), payload = payloadX } = x
-    MkEvent { query = (startY, endY), payload = payloadY } = y
-    overlap = if start >= end then [] else return $ MkEvent { query = (start, end), payload = payloadX <> payloadY }
-      where
-        start = max startX startY
-        end = min endX endY
+newtype Signal a = MkSignal { signal :: Interval -> [Event a] }
+  deriving (Functor, Monoid)
 
 embed :: a -> Signal a
 embed x = MkSignal $ \(queryStart, queryEnd) -> do
@@ -68,33 +40,14 @@ embed x = MkSignal $ \(queryStart, queryEnd) -> do
     start = (fromIntegral @Integer) . floor $ queryStart
     end = (fromIntegral @Integer) . ceiling $ queryEnd
   beat <- [start..end - 1]
-  return MkEvent { query = (beat, (beat + 1)), payload = x }
+  return MkEvent { interval = (beat, beat + 1), payload = x }
 
 pruneSignal :: Signal a -> Signal a
 pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
   let
-    inBounds MkEvent {query = (start, _)} = start >= queryStart && start < queryEnd
+    inBounds MkEvent {interval = (start, _)} = start >= queryStart && start < queryEnd
   in
     filter inBounds $ sig (queryStart, queryEnd)
-
-instance Monoid a => Monoid (Signal a) where
-  mempty = MkSignal $ \_ -> []
-
-  (MkSignal sigX) `mappend` (MkSignal sigY) = MkSignal $ \query ->
-    let
-      xs = sigX query
-    in
-      case xs of
-        [] -> sigY query
-        _ ->
-          let
-            f x@MkEvent{query=subQuery} acc = case sigY subQuery of
-              [] -> (pure x <> acc)
-              ys -> (<> acc) $ do
-                y <- ys
-                x `combineEventOverlap` y
-          in
-            foldr f [] xs
 
 -- | shift forward in time
 shift :: Time -> Signal a -> Signal a
@@ -102,7 +55,7 @@ shift t MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
       & lmap (\(start, end) -> (start - t, end - t ))
-      & rmap (fmap $ \ev@MkEvent { query = (start, end) } -> ev { query = (start + t, end + t) })
+      & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start + t, end + t) })
 
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
@@ -110,7 +63,7 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
       & lmap (\(start, end) -> ( start * n, end * n ))
-      & rmap (fmap $ \ev@MkEvent { query = (start, end) } -> ev { query = (start / n, end / n) })
+      & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
 -- | stack in parallel
 stack :: [Signal a] -> Signal a
@@ -124,3 +77,83 @@ interleave sigs = MkSignal $ \query -> do
   let (fromIntegral -> len) = length sigs
   (sig, n) <- zip sigs [0..]
   signal (shift (n/len) sig) query
+
+-- | Query a signal for once cycle at the given rate, relative to some absolute time
+querySignal :: forall a. Time.UTCTime -> Rational -> Interval -> Signal a -> [(Time.UTCTime, a)]
+querySignal now cps query sig = fmap formatEvent events
+  where
+    queryStart :: Rational
+    (queryStart, _) = query
+
+    events :: [Event a]
+    events = signal (pruneSignal sig) query
+
+    formatEvent :: Event a -> (Time.UTCTime, a)
+    formatEvent MkEvent{interval=(start, _), payload} =
+      let
+        delay = (start - queryStart)  * (recip cps)
+        timestamp = Time.addUTCTime (fromRational delay) now
+      in
+        (timestamp, payload)
+
+toOSCBundleTest :: (Time.UTCTime, BS.ByteString) -> BS.ByteString
+toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [Right $ OSC.OSC "/play2" message]
+  where
+    timestamp :: OSC.Timestamp
+    timestamp = OSC.utcToTimestamp time
+
+    message :: [OSC.OSCDatum]
+    message = [OSC.OSC_S "s", OSC.OSC_S sound]
+
+data Env = MkEnv
+  { sendEvents :: IO ()
+  , superDirtSocket :: Network.Socket
+  , clockRef :: MVar Rational
+  , signalRef :: MVar (Signal BS.ByteString)
+  }
+
+data Config = MkConfig
+  { portNumber :: Network.PortNumber
+  , cps :: Rational
+  }
+
+makeEnv :: Config -> IO Env
+makeEnv config@MkConfig{portNumber } = do
+  superDirtSocket <- _makeLocalUDPConnection portNumber
+  clockRef <- newMVar (0 :: Rational)
+  signalRef <- newMVar (mempty :: Signal BS.ByteString)
+  let
+    sendEvents :: IO ()
+    sendEvents = _makeSendEvents config env
+
+    env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents }
+  return env
+
+_makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
+_makeLocalUDPConnection portNumber = do
+  (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show portNumber))
+  superDirtSocket <- Network.socket (Network.addrFamily a) Network.Datagram Network.defaultProtocol
+  Network.connect superDirtSocket (Network.addrAddress a)
+  return superDirtSocket
+
+_makeSendEvents :: Config -> Env -> IO ()
+_makeSendEvents MkConfig{cps} MkEnv{superDirtSocket, clockRef, signalRef } = do
+  now <- Time.getCurrentTime
+  signal <- readMVar signalRef
+  clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
+  let oscEvents = querySignal now cps (clockVal, clockVal + 1) signal
+  _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
+  return ()
+
+delayOneCycle :: Rational -> IO ()
+delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
+
+main :: IO ()
+main = do
+  let portNumber = 57121
+  let cps = 1
+  MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {cps, portNumber}
+  modifyMVar_ signalRef (const . return $ embed "bd")
+  forever $ do
+    sendEvents
+    delayOneCycle cps
