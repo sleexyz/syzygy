@@ -195,7 +195,7 @@ spec = do
             <> signal (shift (2/3) $ fast 3 c) (2/3, 1)
 
       describe "for multiple cycles" $ do
-        it "should play patterns, shifted in order" $ do
+        it "should play scaled patterns, shifted in order" $ do
           signal (nest [a, b]) (0, 2) `shouldMatchList` mempty
             <> signal (shift (0/2) $ fast 2 a) ((0/2),(1/2))
             <> signal (shift (1/2) $ fast 2 b) ((1/2),(2/2))

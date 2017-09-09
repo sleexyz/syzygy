@@ -96,7 +96,10 @@ interleave sigs = stack $ filterAndShift <$> zip sigs [0..]
 
 -- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a
-nest sigs = interleave $ fast (fromIntegral $ length sigs) <$> sigs
+nest sigs = interleave $ fast n <$> sigs
+  where
+    n :: Rational
+    n = fromIntegral $ length sigs
 
 
 -- | Query a signal for once cycle at the given rate, relative to some absolute time
