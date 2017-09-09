@@ -22,12 +22,10 @@ import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
 import qualified Vivid.OSC as OSC
 
-type Time = Rational
-
-type Interval = (Time, Time)
+type Interval = (Rational, Rational)
 
 data Event a = MkEvent
-  { interval :: (Time, Time)
+  { interval :: (Rational, Rational)
   , payload :: a
   } deriving (Eq, Show, Functor)
 
@@ -50,7 +48,7 @@ pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
     filter inBounds $ sig (queryStart, queryEnd)
 
 -- | shift forward in time
-shift :: Time -> Signal a -> Signal a
+shift :: Rational -> Signal a -> Signal a
 shift t MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
@@ -71,12 +69,37 @@ stack sigs = MkSignal $ \query -> do
   MkSignal{signal} <- sigs
   signal query
 
--- | interleave within one period
+
+-- | filter a signal by a predicate on events
+_filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
+_filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
+
+-- | interleave signals within a single cycle
 interleave :: [Signal a] -> Signal a
-interleave sigs = MkSignal $ \query -> do
-  let (fromIntegral -> len) = length sigs
-  (sig, n) <- zip sigs [0..]
-  signal (shift (n/len) sig) query
+interleave sigs = stack $ filterAndShift <$> zip sigs [0..]
+  where
+    n :: Rational
+    n = fromIntegral $ length sigs
+
+    makeSieve :: Rational -> Event a -> Bool
+    makeSieve i MkEvent { interval = (start, _) } =
+      let
+        startFract = snd $ properFraction @ Rational @ Integer start
+      in
+        startFract >= (i/ n) && startFract < ((i + 1) / n)
+
+    filterAndShift:: (Signal a, Rational) -> Signal a
+    filterAndShift (sig, i) = sig
+      & shift (i/n)
+      & _filterSignal (makeSieve i)
+
+-- | interleaves scaled signals within a single cycle
+nest :: [Signal a] -> Signal a
+nest sigs = interleave $ fast n <$> sigs
+  where
+    n :: Rational
+    n = fromIntegral $ length sigs
+
 
 -- | Query a signal for once cycle at the given rate, relative to some absolute time
 querySignal :: forall a. Time.UTCTime -> Rational -> Interval -> Signal a -> [(Time.UTCTime, a)]
