@@ -119,13 +119,13 @@ data Config = MkConfig
   }
 
 makeEnv :: Config -> IO Env
-makeEnv MkConfig{portNumber, cps} = do
+makeEnv config@MkConfig{portNumber, cps} = do
   superDirtSocket <- _makeLocalUDPConnection portNumber
   clockRef <- newMVar (0 :: Rational)
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
     sendEvents :: IO ()
-    sendEvents = _makeSendEvents env
+    sendEvents = _makeSendEvents config env
 
     env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents, cps }
   return env
@@ -137,16 +137,15 @@ _makeLocalUDPConnection portNumber = do
   Network.connect superDirtSocket (Network.addrAddress a)
   return superDirtSocket
 
-_makeSendEvents :: Env -> IO ()
-_makeSendEvents MkEnv{superDirtSocket, clockRef, signalRef, cps} = do
+_makeSendEvents :: Config -> Env -> IO ()
+_makeSendEvents MkConfig{cps} MkEnv{superDirtSocket, clockRef, signalRef } = do
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
   clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
   let oscEvents = querySignal now cps (clockVal, clockVal + 1) signal
   _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
-  delayOneCycle cps
+  return ()
 
--- | Test me
 delayOneCycle :: Rational -> IO ()
 delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
 
