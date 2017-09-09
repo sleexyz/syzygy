@@ -64,31 +64,39 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
       & rmap (fmap $ \ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
 -- | stack in parallel
+-- TODO: deprecate
 stack :: [Signal a] -> Signal a
 stack sigs = MkSignal $ \query -> do
   MkSignal{signal} <- sigs
   signal query
 
--- | sequence in series
-series :: [Signal a] -> Signal a
-series sigs = MkSignal $ \(queryStart, queryEnd)->
-  let
+
+-- | filter a signal by a predicate on events
+_filt :: (Event a -> Bool) -> Signal a -> Signal a
+_filt predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
+
+-- | interleave signals within a single cycle
+interleave :: [Signal a] -> Signal a
+interleave sigs = stack $ filterAndShift <$> zip sigs [0..]
+  where
+    n :: Rational
     n = fromIntegral $ length sigs
-    inBounds i MkEvent { interval = (start, _) } =
+
+    makeSieve :: Rational -> Event a -> Bool
+    makeSieve i MkEvent { interval = (start, _) } =
       let
-        startFract = snd $ (properFraction :: Rational -> (Integer, Rational)) start
+        startFract = snd $ properFraction @ Rational @ Integer start
       in
         startFract >= (i/ n) && startFract < ((i + 1) / n)
 
-    filterEvents i events = filter (inBounds i) events
-  in
-    do
-      (sig, i) <- zip sigs [0..]
-      filterEvents i $ signal (shift (i/n) sig) (queryStart, queryEnd)
+    filterAndShift:: (Signal a, Rational) -> Signal a
+    filterAndShift (sig, i) = sig
+      & shift (i/n)
+      & _filt (makeSieve i)
 
--- | sequence in series, and scale each
+-- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a
-nest sigs = series $ fast (fromIntegral $ length sigs) <$> sigs
+nest sigs = interleave $ fast (fromIntegral $ length sigs) <$> sigs
 
 
 -- | Query a signal for once cycle at the given rate, relative to some absolute time

@@ -118,35 +118,55 @@ spec = do
           , MkEvent ((1/2), (3/2)) ()
           ]
 
-    describe "series" $ do
+    describe "_filt" $ do
+      let
+        pat :: Signal String
+        pat = fast 4 $ embed "bd"
+      it "should return no events when predicate is always false" $ do
+        let predicate = const False
+        signal (_filt predicate pat) (0, 2) `shouldBe` mempty
+
+      it "should return all events when predicate is always true" $ do
+        let predicate = const True
+        signal (_filt predicate pat) (0, 2) `shouldBe` signal pat (0, 2)
+
+      it "should be able to use a custom predicate" $ do
+        let predicate MkEvent{interval= (start, _)} =
+              let
+                startFract = (snd $ properFraction @ Rational @ Integer start)
+              in
+                startFract >= 0 && startFract < 0.5
+        signal (_filt predicate pat) (0, 2) `shouldBe` signal pat (0, 0.5) <> signal pat (1, 1.5)
+
+    describe "interleave" $ do
       let
         a, b, c :: Signal String
         a = fast 2 $ embed "a"
         b = fast 2 $ embed "b"
         c = fast 2 $ embed "c"
       it "should noop for 1" $ do
-        signal (series [a]) (0, 1) `shouldBe` signal a (0, 1)
+        signal (interleave [a]) (0, 1) `shouldBe` signal a (0, 1)
 
       describe "for one cycle" $ do
         it "should play patterns, shifted in order" $ do
-          signal (series [a, b]) (0, 1) `shouldBe` mempty
-            <> signal (shift 0 a) (0, 0.5)
-            <> signal (shift 0.5 b) (0.5, 1)
+          signal (interleave [a, b]) (0, 1) `shouldBe` mempty
+            <> signal (shift (0/2) a) (0, 0.5)
+            <> signal (shift (1/2) b) (0.5, 1)
 
-          signal (series [a, b, c]) (0, 1) `shouldBe` mempty
-            <> signal (shift 0 a) (0, 1/3)
+          signal (interleave [a, b, c]) (0, 1) `shouldBe` mempty
+            <> signal (shift (0/3) a) (0, 1/3)
             <> signal (shift (1/3) b) (1/3, 2/3)
             <> signal (shift (2/3) c) (2/3, 1)
 
       describe "for multiple cycles" $ do
         it "should play patterns, shifted in order" $ do
-          signal (series [a, b]) (0, 2) `shouldMatchList` mempty
+          signal (interleave [a, b]) (0, 2) `shouldMatchList` mempty
             <> signal (shift (0/2) a) ((0/2),(1/2))
             <> signal (shift (1/2) b) ((1/2),(2/2))
             <> signal (shift (0/2) a) ((2/2),(3/2))
             <> signal (shift (1/2) b) ((3/2),(4/2))
 
-          signal (series [a, b, c]) (0, 2) `shouldMatchList` mempty
+          signal (interleave [a, b, c]) (0, 2) `shouldMatchList` mempty
             <> signal (shift (0/3) a) (0/3, 1/3)
             <> signal (shift (1/3) b) (1/3, 2/3)
             <> signal (shift (2/3) c) (2/3, 3/3)
@@ -204,7 +224,7 @@ spec = do
     it "returns the same payloads from querying the signal, but pruned" $ do
       let
         expectedPayloads :: [String]
-        expectedPayloads = (signal (pruneSignal sig) query)& fmap payload
+        expectedPayloads = (signal (pruneSignal sig) query) & fmap payload
       now <- Time.getCurrentTime
       let oscEvents = querySignal now cps query sig
       (oscEvents & fmap snd) `shouldBe` expectedPayloads
@@ -266,7 +286,7 @@ spec = do
             (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
 
       it "can send multiple event to SuperDirt in the same cycle" $ do
-        (sendEvents, oscBundleChan) <- sendOneCycle (series [ embed "bd", embed "sn" ])
+        (sendEvents, oscBundleChan) <- sendOneCycle (nest [ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
         do
           sendEvents
@@ -281,7 +301,7 @@ spec = do
             (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
 
       it "can send multiple events in multiple cycles, when invoked multiple times" $ do
-        (sendEvents, oscBundleChan) <- sendOneCycle (series [ fast 0.5 $ embed "bd", embed "sn" ])
+        (sendEvents, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
         do
           sendEvents
@@ -303,14 +323,14 @@ spec = do
             (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 3/2, 1e-3)
 
   describe "delayOneCycle" $ do
-    it "delays by one second given 1 cps" $ do
+    it "delays by (1/30) given (30) cps" $ do
       timeBefore <- Time.getCurrentTime
-      delayOneCycle 1
+      delayOneCycle 30
       timeAfter <- Time.getCurrentTime
-      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1, 1e-2)
+      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1/30, 1e-3)
 
     it "delays by (1/60) second given 60 cps" $ do
       timeBefore <- Time.getCurrentTime
       delayOneCycle 60
       timeAfter <- Time.getCurrentTime
-      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1/60, 1e-2)
+      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1/60, 1e-3)
