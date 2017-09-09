@@ -71,8 +71,8 @@ stack sigs = MkSignal $ \query -> do
 
 
 -- | filter a signal by a predicate on events
-_filt :: (Event a -> Bool) -> Signal a -> Signal a
-_filt predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
+_filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
+_filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
 
 -- | interleave signals within a single cycle
 interleave :: [Signal a] -> Signal a
@@ -91,7 +91,7 @@ interleave sigs = stack $ filterAndShift <$> zip sigs [0..]
     filterAndShift:: (Signal a, Rational) -> Signal a
     filterAndShift (sig, i) = sig
       & shift (i/n)
-      & _filt (makeSieve i)
+      & _filterSignal (makeSieve i)
 
 -- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a

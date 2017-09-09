@@ -118,17 +118,17 @@ spec = do
           , MkEvent ((1/2), (3/2)) ()
           ]
 
-    describe "_filt" $ do
+    describe "_filterSignal" $ do
       let
         pat :: Signal String
         pat = fast 4 $ embed "bd"
       it "should return no events when predicate is always false" $ do
         let predicate = const False
-        signal (_filt predicate pat) (0, 2) `shouldBe` mempty
+        signal (_filterSignal predicate pat) (0, 2) `shouldBe` mempty
 
       it "should return all events when predicate is always true" $ do
         let predicate = const True
-        signal (_filt predicate pat) (0, 2) `shouldBe` signal pat (0, 2)
+        signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 2)
 
       it "should be able to use a custom predicate" $ do
         let predicate MkEvent{interval= (start, _)} =
@@ -136,7 +136,7 @@ spec = do
                 startFract = (snd $ properFraction @ Rational @ Integer start)
               in
                 startFract >= 0 && startFract < 0.5
-        signal (_filt predicate pat) (0, 2) `shouldBe` signal pat (0, 0.5) <> signal pat (1, 1.5)
+        signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 0.5) <> signal pat (1, 1.5)
 
     describe "interleave" $ do
       let
