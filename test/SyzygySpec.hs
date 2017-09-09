@@ -118,14 +118,77 @@ spec = do
           , MkEvent ((1/2), (3/2)) ()
           ]
 
-    describe "interleave" $ do
-      let pat = embed ()
+    describe "series" $ do
+      let
+        a, b, c :: Signal String
+        a = fast 2 $ embed "a"
+        b = fast 2 $ embed "b"
+        c = fast 2 $ embed "c"
       it "should noop for 1" $ do
-        signal (interleave [pat]) (0, 1) `shouldBe` signal pat (0, 1)
+        signal (series [a]) (0, 1) `shouldBe` signal a (0, 1)
 
-      it "should stack patterns, shifted" $ do
-        signal (interleave [pat, pat])      (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift 0.5 pat)]) (0, 1)
-        signal (interleave [pat, pat, pat]) (0, 1) `shouldBe` signal (stack [(shift 0 pat), (shift (1/3) pat), (shift (2/3) pat)]) (0, 1)
+      describe "for one cycle" $ do
+        it "should play patterns, shifted in order" $ do
+          signal (series [a, b]) (0, 1) `shouldBe` mempty
+            <> signal (shift 0 a) (0, 0.5)
+            <> signal (shift 0.5 b) (0.5, 1)
+
+          signal (series [a, b, c]) (0, 1) `shouldBe` mempty
+            <> signal (shift 0 a) (0, 1/3)
+            <> signal (shift (1/3) b) (1/3, 2/3)
+            <> signal (shift (2/3) c) (2/3, 1)
+
+      describe "for multiple cycles" $ do
+        it "should play patterns, shifted in order" $ do
+          signal (series [a, b]) (0, 2) `shouldMatchList` mempty
+            <> signal (shift (0/2) a) ((0/2),(1/2))
+            <> signal (shift (1/2) b) ((1/2),(2/2))
+            <> signal (shift (0/2) a) ((2/2),(3/2))
+            <> signal (shift (1/2) b) ((3/2),(4/2))
+
+          signal (series [a, b, c]) (0, 2) `shouldMatchList` mempty
+            <> signal (shift (0/3) a) (0/3, 1/3)
+            <> signal (shift (1/3) b) (1/3, 2/3)
+            <> signal (shift (2/3) c) (2/3, 3/3)
+            <> signal (shift (0/3) a) (3/3, 4/3)
+            <> signal (shift (1/3) b) (4/3, 5/3)
+            <> signal (shift (2/3) c) (5/3, 6/3)
+
+    describe "nest" $ do
+      let
+        a, b, c :: Signal String
+        a = fast 2 $ embed "a"
+        b = fast 2 $ embed "b"
+        c = fast 2 $ embed "c"
+      it "should noop for 1" $ do
+        signal (nest [a]) (0, 1) `shouldBe` signal a (0, 1)
+
+      describe "for one cycle" $ do
+        it "should play scaled patterns, shifted in order" $ do
+          signal (nest [a, b]) (0, 1) `shouldBe` mempty
+            <> signal (shift (0/2) $ fast 2 a) (0, 0.5)
+            <> signal (shift (1/2) $ fast 2 b) (0.5, 1)
+
+          signal (nest [a, b, c]) (0, 1) `shouldBe` mempty
+            <> signal (shift (1/3) $ fast 3 a) (0, 1/3)
+            <> signal (shift (1/3) $ fast 3 b) (1/3, 2/3)
+            <> signal (shift (2/3) $ fast 3 c) (2/3, 1)
+
+      describe "for multiple cycles" $ do
+        it "should play patterns, shifted in order" $ do
+          signal (nest [a, b]) (0, 2) `shouldMatchList` mempty
+            <> signal (shift (0/2) $ fast 2 a) ((0/2),(1/2))
+            <> signal (shift (1/2) $ fast 2 b) ((1/2),(2/2))
+            <> signal (shift (0/2) $ fast 2 a) ((2/2),(3/2))
+            <> signal (shift (1/2) $ fast 2 b) ((3/2),(4/2))
+
+          signal (nest [a, b, c]) (0, 2) `shouldMatchList` mempty
+            <> signal (shift (0/3) $ fast 3 a) (0/3, 1/3)
+            <> signal (shift (1/3) $ fast 3 b) (1/3, 2/3)
+            <> signal (shift (2/3) $ fast 3 c) (2/3, 3/3)
+            <> signal (shift (0/3) $ fast 3 a) (3/3, 4/3)
+            <> signal (shift (1/3) $ fast 3 b) (4/3, 5/3)
+            <> signal (shift (2/3) $ fast 3 c) (5/3, 6/3)
 
   describe "querySignal" $ do
     let
@@ -203,7 +266,7 @@ spec = do
             (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (0, 1e-3)
 
       it "can send multiple event to SuperDirt in the same cycle" $ do
-        (sendEvents, oscBundleChan) <- sendOneCycle (interleave [ embed "bd", embed "sn" ])
+        (sendEvents, oscBundleChan) <- sendOneCycle (series [ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
         do
           sendEvents
@@ -218,7 +281,7 @@ spec = do
             (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
 
       it "can send multiple events in multiple cycles, when invoked multiple times" $ do
-        (sendEvents, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
+        (sendEvents, oscBundleChan) <- sendOneCycle (series [ fast 0.5 $ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
         do
           sendEvents

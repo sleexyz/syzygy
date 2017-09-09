@@ -22,12 +22,10 @@ import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
 import qualified Vivid.OSC as OSC
 
-type Time = Rational
-
-type Interval = (Time, Time)
+type Interval = (Rational, Rational)
 
 data Event a = MkEvent
-  { interval :: (Time, Time)
+  { interval :: (Rational, Rational)
   , payload :: a
   } deriving (Eq, Show, Functor)
 
@@ -50,7 +48,7 @@ pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
     filter inBounds $ sig (queryStart, queryEnd)
 
 -- | shift forward in time
-shift :: Time -> Signal a -> Signal a
+shift :: Rational -> Signal a -> Signal a
 shift t MkSignal {signal=originalSignal} = MkSignal {signal}
   where
     signal = originalSignal
@@ -71,12 +69,27 @@ stack sigs = MkSignal $ \query -> do
   MkSignal{signal} <- sigs
   signal query
 
--- | interleave within one period
-interleave :: [Signal a] -> Signal a
-interleave sigs = MkSignal $ \query -> do
-  let (fromIntegral -> len) = length sigs
-  (sig, n) <- zip sigs [0..]
-  signal (shift (n/len) sig) query
+-- | sequence in series
+series :: [Signal a] -> Signal a
+series sigs = MkSignal $ \(queryStart, queryEnd)->
+  let
+    n = fromIntegral $ length sigs
+    inBounds i MkEvent { interval = (start, _) } =
+      let
+        startFract = snd $ (properFraction :: Rational -> (Integer, Rational)) start
+      in
+        startFract >= (i/ n) && startFract < ((i + 1) / n)
+
+    filterEvents i events = filter (inBounds i) events
+  in
+    do
+      (sig, i) <- zip sigs [0..]
+      filterEvents i $ signal (shift (i/n) sig) (queryStart, queryEnd)
+
+-- | sequence in series, and scale each
+nest :: [Signal a] -> Signal a
+nest sigs = series $ fast (fromIntegral $ length sigs) <$> sigs
+
 
 -- | Query a signal for once cycle at the given rate, relative to some absolute time
 querySignal :: forall a. Time.UTCTime -> Rational -> Interval -> Signal a -> [(Time.UTCTime, a)]
