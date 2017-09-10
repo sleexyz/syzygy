@@ -1,5 +1,6 @@
 module Syzygy.MIDI where
 
+import Data.Monoid
 import Control.Monad (forever, void)
 import Control.Concurrent (threadDelay, MVar, newMVar, readMVar, modifyMVar, modifyMVar_)
 import Data.Word (Word8)
@@ -87,12 +88,15 @@ main = makeEnv MkConfig { portName = "UM-ONE MIDI 1" } $ \env ->
     MkEnv{ send, tick, drain, signalRef, clockRef} = env
   in
     do
-      let pat = fast 4 (embed 30)
+      let pat = fast 1 $ mempty
+            <> (fast 1 $ nest [embed 30, fast 2 $ embed 30])
+            <> (fast 1 $ nest [embed 30, fast 2 $ embed 30])
       modifyMVar_ signalRef (const $ return $ pruneSignal pat)
       forever $ do
         sig <- readMVar signalRef
         clockVal <- modifyMVar clockRef (\x -> return (x + (1/((24))), x))
-        _ <- traverse send $ (\MkEvent {payload} -> payload) <$> signal sig (clockVal, clockVal + (1/(24)))
+        let midiEvents = (\MkEvent {payload} -> payload) <$> signal sig (clockVal, clockVal + (1/(24)))
+        _ <- traverse send midiEvents
         tick
         drain
         delayOnePulse bpm
