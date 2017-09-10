@@ -94,8 +94,8 @@ main = makeEnv MkConfig { portName = "UM-ONE MIDI 1" } $ \env ->
       modifyMVar_ signalRef (const $ return $ pruneSignal pat)
       forever $ do
         sig <- readMVar signalRef
-        clockVal <- modifyMVar clockRef (\x -> return (x + (1/((24))), x))
-        let midiEvents = (\MkEvent {payload} -> payload) <$> signal sig (clockVal, clockVal + (1/(24)))
+        clockVal <- modifyMVar clockRef (\x -> return (x + (1/24), x))
+        let midiEvents = (\MkEvent {payload} -> payload) <$> signal sig (clockVal, clockVal + (1/24))
         _ <- traverse send midiEvents
         tick
         drain

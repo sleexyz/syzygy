@@ -203,8 +203,8 @@ spec = do
 
   describe "querySignal" $ do
     let
-      cps :: Rational
-      cps = 1
+      bpm :: Int
+      bpm = 60
 
       query :: Interval
       query = (0, 1)
@@ -217,14 +217,14 @@ spec = do
         expectedPayloads :: [String]
         expectedPayloads = (signal (pruneSignal sig) query) & fmap payload
       now <- Time.getCurrentTime
-      let oscEvents = querySignal now cps query sig
+      let oscEvents = querySignal now bpm query sig
       (oscEvents & fmap snd) `shouldBe` expectedPayloads
 
     it "returns the correct future timestamps" $ do
       now <- Time.getCurrentTime
       let
         event1, event2, event3 :: (Time.UTCTime, String)
-        [event1, event2, event3] = querySignal now cps query sig
+        [event1, event2, event3] = querySignal now bpm query sig
 
         -- | Difference from now in seconds, with a picosecond tolerance
         shouldExpectDifferenceFromNow :: (Time.UTCTime, a) -> Time.NominalDiffTime -> IO ()
@@ -239,11 +239,11 @@ spec = do
 
   describe "sendEvents" $ do
     let
-      mkTestEnvWithNoHandler :: Rational -> IO Env
-      mkTestEnvWithNoHandler cps = mkTestEnv cps (\_ -> return ())
+      mkTestEnvWithNoHandler :: Int -> IO Env
+      mkTestEnvWithNoHandler bpm = mkTestEnv bpm (\_ -> return ())
 
-      mkTestEnv :: Rational -> (OSCBundle -> IO ()) -> IO Env
-      mkTestEnv cps handler = withMockOSCServer handler $ \portNumber -> makeEnv MkConfig{portNumber, cps}
+      mkTestEnv :: Int -> (OSCBundle -> IO ()) -> IO Env
+      mkTestEnv bpm handler = withMockOSCServer handler $ \portNumber -> makeEnv MkConfig{portNumber, bpm}
 
     it "increments the clockRef by one cycle" $ do
       MkEnv{sendEvents, clockRef} <- mkTestEnvWithNoHandler 60
@@ -254,14 +254,14 @@ spec = do
 
     describe "when talking to SuperDirt" $ do
       let
-        cps :: Num a => a
-        cps = 60
+        bpm :: Num a => a
+        bpm = 60
 
         -- | sends one cycle to the mock SuperDirt at 60cps
         sendOneCycle :: Signal BS.ByteString -> IO (IO (), Chan OSCBundle)
         sendOneCycle signal = do
           (oscBundleChan :: Chan OSCBundle) <- newChan
-          MkEnv{sendEvents, signalRef} <- mkTestEnv cps $ \bundle -> do
+          MkEnv{sendEvents, signalRef} <- mkTestEnv bpm $ \bundle -> do
               writeChan oscBundleChan bundle
           modifyMVar_ signalRef (const . return $ signal)
           return (sendEvents, oscBundleChan)
@@ -281,47 +281,47 @@ spec = do
         now <- Time.getCurrentTime
         do
           sendEvents
-          delayOneCycle 60
+          delayOneBeat 60
           do
             OSCBundle timestamp [Right message] <- readChan oscBundleChan
             message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (60/bpm * 0/2, 1e-3)
           do
             OSCBundle timestamp [Right message] <- readChan oscBundleChan
             message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (60/bpm * 1/2, 1e-3)
 
       it "can send multiple events in multiple cycles, when invoked multiple times" $ do
         (sendEvents, oscBundleChan) <- sendOneCycle (interleave [ fast 0.5 $ embed "bd", embed "sn" ])
         now <- Time.getCurrentTime
         do
           sendEvents
-          delayOneCycle 60
+          delayOneBeat 60
           do
             OSCBundle timestamp [Right message] <- readChan oscBundleChan
             message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 0/2, 1e-3)
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (60/bpm * 0/2, 1e-3)
           do
             OSCBundle timestamp [Right message] <- readChan oscBundleChan
             message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 1/2, 1e-3)
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (60/bpm * 1/2, 1e-3)
         do
           sendEvents
-          delayOneCycle 60
+          delayOneBeat 60
           do
             OSCBundle timestamp [Right message] <- readChan oscBundleChan
             message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
-            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (1/cps * 3/2, 1e-3)
+            (timestamp `diffTimestamp` utcToTimestamp  now) `shouldBeAround` (60/bpm * 3/2, 1e-2)
 
-  describe "delayOneCycle" $ do
-    it "delays by (1/30) given (30) cps" $ do
+  describe "delayOneBeat" $ do
+    it "delays by 2 given 30 bpm" $ do
       timeBefore <- Time.getCurrentTime
-      delayOneCycle 30
+      delayOneBeat 30
       timeAfter <- Time.getCurrentTime
-      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1/30, 1e-3)
+      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (2, 1e-2)
 
-    it "delays by (1/60) second given 60 cps" $ do
+    it "delays by 1 second given 60 bpm" $ do
       timeBefore <- Time.getCurrentTime
-      delayOneCycle 60
+      delayOneBeat 60
       timeAfter <- Time.getCurrentTime
-      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1/60, 1e-3)
+      (timeAfter `Time.diffUTCTime` timeBefore) `shouldBeAround` (1, 1e-2)

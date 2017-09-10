@@ -85,8 +85,8 @@ nest sigs = interleave $ fast n <$> sigs
 
 
 -- | Query a signal for once cycle at the given rate, relative to some absolute time
-querySignal :: forall a. Time.UTCTime -> Rational -> Interval -> Signal a -> [(Time.UTCTime, a)]
-querySignal now cps query sig = fmap formatEvent events
+querySignal :: forall a. Time.UTCTime -> Int -> Interval -> Signal a -> [(Time.UTCTime, a)]
+querySignal now bpm query sig = fmap formatEvent events
   where
     queryStart :: Rational
     (queryStart, _) = query
@@ -97,7 +97,7 @@ querySignal now cps query sig = fmap formatEvent events
     formatEvent :: Event a -> (Time.UTCTime, a)
     formatEvent MkEvent{interval=(start, _), payload} =
       let
-        delay = (start - queryStart)  * (recip cps)
+        delay = (start - queryStart)  * (60 / fromIntegral bpm)
         timestamp = Time.addUTCTime (fromRational delay) now
       in
         (timestamp, payload)
@@ -120,7 +120,7 @@ data Env = MkEnv
 
 data Config = MkConfig
   { portNumber :: Network.PortNumber
-  , cps :: Rational
+  , bpm :: Int
   }
 
 makeEnv :: Config -> IO Env
@@ -143,23 +143,23 @@ _makeLocalUDPConnection portNumber = do
   return superDirtSocket
 
 _makeSendEvents :: Config -> Env -> IO ()
-_makeSendEvents MkConfig{cps} MkEnv{superDirtSocket, clockRef, signalRef } = do
+_makeSendEvents MkConfig{bpm} MkEnv{superDirtSocket, clockRef, signalRef } = do
   now <- Time.getCurrentTime
   signal <- readMVar signalRef
   clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
-  let oscEvents = querySignal now cps (clockVal, clockVal + 1) signal
+  let oscEvents = querySignal now bpm (clockVal, clockVal + 1) signal
   _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
   return ()
 
-delayOneCycle :: Rational -> IO ()
-delayOneCycle cps = threadDelay (floor $ recip cps * 1000000)
+delayOneBeat :: Int -> IO ()
+delayOneBeat bpm = threadDelay ((10^6 * 60) `div` bpm)
 
 main :: IO ()
 main = do
   let portNumber = 57120
-  let cps = 1
-  MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {cps, portNumber}
+  let bpm = 60
+  MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {bpm, portNumber}
   modifyMVar_ signalRef (const . return $ embed "bd")
   forever $ do
     sendEvents
-    delayOneCycle cps
+    delayOneBeat bpm
