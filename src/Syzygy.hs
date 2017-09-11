@@ -83,25 +83,6 @@ nest sigs = interleave $ fast n <$> sigs
     n :: Rational
     n = fromIntegral $ length sigs
 
-
--- | Query a signal for once cycle at the given rate, relative to some absolute time
-querySignal :: forall a. Time.UTCTime -> Int -> Interval -> Signal a -> [(Time.UTCTime, a)]
-querySignal now bpm query sig = fmap formatEvent events
-  where
-    queryStart :: Rational
-    (queryStart, _) = query
-
-    events :: [Event a]
-    events = signal (pruneSignal sig) query
-
-    formatEvent :: Event a -> (Time.UTCTime, a)
-    formatEvent MkEvent{interval=(start, _), payload} =
-      let
-        delay = (start - queryStart)  * (60 / fromIntegral bpm)
-        timestamp = Time.addUTCTime (fromRational delay) now
-      in
-        (timestamp, payload)
-
 toOSCBundleTest :: (Time.UTCTime, BS.ByteString) -> BS.ByteString
 toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [Right $ OSC.OSC "/play2" message]
   where
@@ -112,26 +93,40 @@ toOSCBundleTest (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [R
     message = [OSC.OSC_S "s", OSC.OSC_S sound]
 
 data Env = MkEnv
-  { sendEvents :: IO ()
+  { sendEvents :: Rational -> [ Event BS.ByteString ] -> IO ()
   , superDirtSocket :: Network.Socket
   , clockRef :: MVar Rational
   , signalRef :: MVar (Signal BS.ByteString)
   }
 
 data Config = MkConfig
-  { portNumber :: Network.PortNumber
+  { superDirtPortNumber :: Network.PortNumber
   , bpm :: Int
+  , tpb :: Int
   }
 
+formatEvent :: Time.UTCTime -> Rational -> Int -> Event a -> (Time.UTCTime, a)
+formatEvent now clockVal bpm MkEvent{interval=(eventStart, _), payload} =
+  let
+    delay = (eventStart - clockVal)  * (60 / fromIntegral bpm)
+    timestamp = Time.addUTCTime (fromRational delay) now
+  in
+    (timestamp, payload)
+
 makeEnv :: Config -> IO Env
-makeEnv config@MkConfig{portNumber } = do
-  superDirtSocket <- _makeLocalUDPConnection portNumber
+makeEnv MkConfig{superDirtPortNumber, bpm } = do
+  superDirtSocket <- _makeLocalUDPConnection superDirtPortNumber
   clockRef <- newMVar (0 :: Rational)
   signalRef <- newMVar (mempty :: Signal BS.ByteString)
   let
-    sendEvents :: IO ()
-    sendEvents = _makeSendEvents config env
+    sendEvents :: Rational -> [ Event BS.ByteString ] -> IO ()
+    sendEvents clockVal events = do
+      now <- Time.getCurrentTime
+      let oscEvents = formatEvent now clockVal bpm <$> events
+      _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
+      return ()
 
+    env :: Env
     env = MkEnv { superDirtSocket, clockRef, signalRef, sendEvents }
   return env
 
@@ -142,24 +137,21 @@ _makeLocalUDPConnection portNumber = do
   Network.connect superDirtSocket (Network.addrAddress a)
   return superDirtSocket
 
-_makeSendEvents :: Config -> Env -> IO ()
-_makeSendEvents MkConfig{bpm} MkEnv{superDirtSocket, clockRef, signalRef } = do
-  now <- Time.getCurrentTime
-  signal <- readMVar signalRef
-  clockVal <- modifyMVar clockRef (\x -> return (x + 1, x))
-  let oscEvents = querySignal now bpm (clockVal, clockVal + 1) signal
-  _ <- traverse (NetworkBS.send superDirtSocket . toOSCBundleTest) oscEvents
-  return ()
 
-delayOneBeat :: Int -> IO ()
-delayOneBeat bpm = threadDelay ((10^6 * 60) `div` bpm)
+delayOneBeat :: Int -> Int -> IO ()
+delayOneBeat bpm spb = threadDelay ((10^6 * 60) `div` bpm `div` spb)
 
 main :: IO ()
 main = do
-  let portNumber = 57120
   let bpm = 60
-  MkEnv{signalRef, sendEvents} <- makeEnv MkConfig {bpm, portNumber}
+  let tpb = 24
+  let superDirtPortNumber = 57120
+  let config = MkConfig { bpm, tpb, superDirtPortNumber}
+  MkEnv{signalRef, sendEvents, clockRef} <- makeEnv config
   modifyMVar_ signalRef (const . return $ embed "bd")
   forever $ do
-    sendEvents
-    delayOneBeat bpm
+    sig <- readMVar signalRef
+    clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral tpb), x))
+    let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral tpb))
+    sendEvents clockVal events
+    delayOneBeat bpm tpb

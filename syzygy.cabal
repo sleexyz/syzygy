@@ -20,7 +20,7 @@ extra-source-files:
 library
   hs-source-dirs:
       src
-  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults
   build-depends:
       base >= 4.7 && < 5
@@ -43,7 +43,7 @@ test-suite syzygy-test
   main-is: Spec.hs
   hs-source-dirs:
       test
-  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults
   build-depends:
       base >= 4.7 && < 5

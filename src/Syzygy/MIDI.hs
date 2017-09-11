@@ -1,8 +1,8 @@
+{-# LANGUAGE FunctionalDependencies #-}
 module Syzygy.MIDI where
 
-import Data.Monoid
 import Control.Monad (forever, void)
-import Control.Concurrent (threadDelay, MVar, newMVar, readMVar, modifyMVar, modifyMVar_)
+import Control.Concurrent
 import Data.Word (Word8)
 import qualified Sound.ALSA.Exception as AlsaExc
 import qualified Sound.ALSA.Sequencer as SndSeq
@@ -52,51 +52,94 @@ connectTo expectedPortName continuation = do
 makeNote :: Word8 -> MIDIEvent.Data
 makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
 
-data Config = MkConfig
-  { portName :: String
-
-  }
-
-data Env = MkEnv
-  { send :: Word8 -> IO ()
-  , tick :: IO ()
-  , drain :: IO ()
+data MIDIConfig = MkMIDIConfig
+  { midiPortName :: String
+  , tpb :: Int
+  , bpm :: Int
   , signalRef :: MVar (Signal Word8)
   , clockRef :: MVar Rational
   }
 
-makeEnv :: Config -> (Env -> IO ()) -> IO ()
-makeEnv MkConfig { portName } continuation = connectTo portName $ \(h, address) ->
+data MIDIEnv = MkMIDIEnv
+  { sendEvents :: Rational -> [Event Word8] -> IO ()
+  }
+
+_makeEnv' :: MIDIConfig -> (MIDIEnv -> IO ()) -> IO ()
+_makeEnv' MkMIDIConfig { midiPortName } continuation = connectTo midiPortName $ \(h, address) ->
   let
-    send pitch = void $ MIDIEvent.output h $ MIDIEvent.simple address (makeNote pitch)
-    tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
-    drain = void $ MIDIEvent.drainOutput h
+    _sendNote :: Word8 -> IO ()
+    _sendNote pitch = void $ MIDIEvent.output h $ MIDIEvent.simple address (makeNote pitch)
+
+    _tick :: IO ()
+    _tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
+
+    _drain :: IO ()
+    _drain = void $ MIDIEvent.drainOutput h
+
+    sendEvents :: Rational -> [Event Word8] -> IO ()
+    sendEvents _ events = do
+      let midiEvents = (\MkEvent {payload} -> payload) <$> events
+      _ <- traverse _sendNote midiEvents
+      _tick
+      _drain
+
   in
     do
-      signalRef <- newMVar mempty
-      clockRef <- newMVar 0
-      continuation MkEnv {send, tick, drain, signalRef, clockRef}
+      continuation MkMIDIEnv {sendEvents}
+
+makeEnv :: MIDIConfig -> IO MIDIEnv
+makeEnv config = do
+  (envRef :: MVar (Maybe MIDIEnv)) <- newEmptyMVar
+  void $ forkIO $ do
+    _makeEnv' config $ \env -> do
+      putMVar envRef $ Just env
+      forever (threadDelay 1000000000)
+    putMVar envRef Nothing
+  maybeEnv <- takeMVar envRef
+  case maybeEnv of
+    Just env -> return env
+    Nothing -> error "device not found"
+
+data CoreConfig a = MkCoreConfig
+  { bpm :: Int
+  , tpb :: Int
+  , signalRef :: MVar (Signal a)
+  , clockRef :: MVar Rational
+  }
 
 
-delayOnePulse :: Int -> IO ()
-delayOnePulse bpm = threadDelay ((60 * 10^6) `div` bpm `div` 24) -- 24 pulses per quarter note
+data Backend config a = MkBackend
+  { toCoreConfig :: config -> CoreConfig a
+  , makeSendEvents :: config -> IO (Rational -> [Event a] -> IO ())
+  }
+
+runBackend :: Backend config a -> config -> IO ()
+runBackend MkBackend {toCoreConfig, makeSendEvents} config = do
+  let MkCoreConfig { bpm, tpb, signalRef, clockRef } = toCoreConfig config
+  sendEvents <- makeSendEvents config
+  forever $ do
+    sig <- readMVar signalRef
+    clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral tpb), x))
+    let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral tpb))
+    sendEvents clockVal events
+    delayOneBeat bpm tpb
+
+
+midiBackend :: Backend MIDIConfig Word8
+midiBackend = MkBackend {toCoreConfig, makeSendEvents}
+  where
+    toCoreConfig MkMIDIConfig{tpb, bpm, signalRef, clockRef} = MkCoreConfig{tpb, bpm, signalRef, clockRef}
+    makeSendEvents config = do
+      MkMIDIEnv{sendEvents} <- makeEnv config
+      return sendEvents
 
 main :: IO ()
-main = makeEnv MkConfig { portName = "UM-ONE MIDI 1" } $ \env ->
-  let
-    bpm = 160
-    MkEnv{ send, tick, drain, signalRef, clockRef} = env
-  in
-    do
-      let pat = fast 1 $ mempty
-            <> (fast 1 $ nest [embed 30, fast 2 $ embed 30])
-            <> (fast 1 $ nest [embed 30, fast 2 $ embed 30])
-      modifyMVar_ signalRef (const $ return $ pruneSignal pat)
-      forever $ do
-        sig <- readMVar signalRef
-        clockVal <- modifyMVar clockRef (\x -> return (x + (1/24), x))
-        let midiEvents = (\MkEvent {payload} -> payload) <$> signal sig (clockVal, clockVal + (1/24))
-        _ <- traverse send midiEvents
-        tick
-        drain
-        delayOnePulse bpm
+main = do
+  signalRef <- newMVar mempty
+  clockRef <- newMVar 0
+  let bpm = 60
+  let tpb = 24
+  let midiPortName = "UM-ONE MIDI 1"
+  let config = MkMIDIConfig { tpb, bpm, midiPortName, signalRef, clockRef}
+  modifyMVar_ signalRef $ (const $ return $ embed 30)
+  runBackend midiBackend config
