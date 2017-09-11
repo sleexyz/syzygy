@@ -33,6 +33,7 @@ library
     , alsa-seq
   exposed-modules:
       Syzygy
+      Syzygy.Core
       Syzygy.MIDI
   other-modules:
       Paths_syzygy
