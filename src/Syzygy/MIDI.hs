@@ -1,8 +1,8 @@
 {-# LANGUAGE FunctionalDependencies #-}
 module Syzygy.MIDI where
 
-import Control.Monad (forever, void)
 import Control.Concurrent
+import Control.Monad (forever, void)
 import Data.Word (Word8)
 import qualified Sound.ALSA.Sequencer as SndSeq
 import qualified Sound.ALSA.Sequencer.Address as Addr
@@ -43,15 +43,6 @@ connectTo expectedPortName continuation = do
       getAddress h expectedPortName $ \sinkAddress -> do
         Connect.withTo h port sinkAddress $ \_ -> do
           continuation (h, address)
-
-listen :: (String, String) ->IO () -> (MIDIEvent.T -> IO ()) -> IO ()
-listen (clientName, portName) onReady eventHandler = SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.InputMode) -> do
-  Client.setName h clientName
-  Port.withSimple h portName (Port.caps [Port.capWrite, Port.capSubsWrite]) Port.typeMidiGeneric $ \_ -> do
-    onReady
-    forever $ do
-      event <- MIDIEvent.input h
-      eventHandler event
 
 makeNote :: Word8 -> MIDIEvent.Data
 makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))

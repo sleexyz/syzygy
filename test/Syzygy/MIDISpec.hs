@@ -2,11 +2,17 @@
 module Syzygy.MIDISpec where
 
 import Control.Concurrent
-import Test.Hspec
-import Syzygy.MIDI
-import Syzygy.Core
-import Syzygy
+import Control.Monad
+import Data.Word (Word8)
+import qualified Sound.ALSA.Sequencer as SndSeq
+import qualified Sound.ALSA.Sequencer.Client as Client
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
+import qualified Sound.ALSA.Sequencer.Port as Port
+import Test.Hspec
+
+import Syzygy
+import Syzygy.Core
+import Syzygy.MIDI
 
 data TestContext = MkTestContext {onEvent :: forall a. (MIDIEvent.T -> IO a) -> IO a}
 
@@ -18,6 +24,16 @@ makeDefaultConfig = do
   let midiPortName = "Syzygy test port"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
   return config
+
+listen :: String -> String -> IO () -> (MIDIEvent.T -> IO ()) -> IO ()
+listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.InputMode) -> do
+  Client.setName h clientName
+  Port.withSimple h portName (Port.caps [Port.capWrite, Port.capSubsWrite]) Port.typeMidiGeneric $ \_ -> do
+    onReady
+    forever $ do
+      event <- MIDIEvent.input h
+      eventHandler event
+
 
 withMockMIDIServer :: MIDIConfig -> (TestContext -> IO ()) -> IO ()
 withMockMIDIServer config continuation = do
@@ -31,7 +47,8 @@ withMockMIDIServer config continuation = do
 
       handleEvent :: MIDIEvent.T -> IO ()
       handleEvent = (\event -> putMVar midiEventRef event)
-    listen ("Syzygy test client", "Syzygy test port") readyComputation handleEvent
+
+    listen "Syzygy test client" "Syzygy test port" readyComputation handleEvent
 
   let
     waitForReadyComputation :: IO ()
@@ -52,6 +69,9 @@ withMockMIDIServer config continuation = do
   killThread listenerThread
   killThread clientThread
 
+getPitch :: MIDIEvent.Note -> Word8
+getPitch note = MIDIEvent.unPitch (MIDIEvent.noteNote note)
+
 spec :: Spec
 spec = do
   describe "MIDI out" $ do
@@ -71,4 +91,4 @@ spec = do
           note :: MIDIEvent.Note
           [MIDIEvent.NoteEv _ note] = filteredData
 
-        MIDIEvent.unPitch (MIDIEvent.noteNote note) `shouldBe` 60
+        getPitch note `shouldBe` 60
