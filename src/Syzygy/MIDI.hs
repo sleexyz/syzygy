@@ -36,13 +36,22 @@ connectTo :: String -> ((SndSeq.T SndSeq.DuplexMode, Addr.T) -> IO ()) -> IO ()
 connectTo expectedPortName continuation = do
   SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.DuplexMode) -> do
     client <- Client.getId h
-    Client.setName h ("Alsa Test")
+    Client.setName h ("Syzygy MIDI Client")
     let portCap = (Port.caps [Port.capRead, Port.capSubsRead, Port.capWrite, Port.capSubsWrite])
     Port.withSimple h "Output" portCap Port.typeHardware $ \port -> do
       let address = Addr.Cons client port
       getAddress h expectedPortName $ \sinkAddress -> do
         Connect.withTo h port sinkAddress $ \_ -> do
           continuation (h, address)
+
+listen :: (String, String) ->IO () -> (MIDIEvent.T -> IO ()) -> IO ()
+listen (clientName, portName) onReady eventHandler = SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.InputMode) -> do
+  Client.setName h clientName
+  Port.withSimple h portName (Port.caps [Port.capWrite, Port.capSubsWrite]) Port.typeMidiGeneric $ \_ -> do
+    onReady
+    forever $ do
+      event <- MIDIEvent.input h
+      eventHandler event
 
 makeNote :: Word8 -> MIDIEvent.Data
 makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))

@@ -8,7 +8,6 @@ import Syzygy.Core
 import Syzygy hiding (Env(..), makeEnv)
 import TestUtils (shouldBeLessThan)
 
-
 makeMockBackend :: Chan (Rational, [Event String]) -> MVar () ->  Backend (CoreConfig String) String
 makeMockBackend spyChan sem = MkBackend {toCoreConfig, makeEnv}
   where
@@ -98,10 +97,10 @@ spec = do
             deltas = zipWith (\x y -> abs (x - y)) delays expectedDelays
           return deltas
 
-      it "has a net shift of less than 7% the beat duration, at 240 bpm" $ do
+      it "has a net shift of less than 10% the beat duration, at 240 bpm" $ do
         let bpm = 240
         deltas <- getDeltas bpm 1
-        sum deltas `shouldBeLessThan` (0.07 * (60/fromIntegral bpm))
+        sum deltas `shouldBeLessThan` (0.1 * (60/fromIntegral bpm))
 
       it "has a net shift of less than 2% the beat duration, at 120 bpm" $ do
         let bpm = 120

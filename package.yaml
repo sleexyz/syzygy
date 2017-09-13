@@ -20,6 +20,7 @@ default-extensions:
   - TypeApplications
   - ViewPatterns
   - MultiParamTypeClasses
+  - RankNTypes
 
 
 dependencies:
