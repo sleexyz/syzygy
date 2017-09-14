@@ -1,4 +1,3 @@
-
 module Syzygy.MIDISpec where
 
 import Control.Concurrent
@@ -10,9 +9,9 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import Test.Hspec
 
-import Syzygy
 import Syzygy.Core
 import Syzygy.MIDI
+import Syzygy.Signal
 
 data TestContext = MkTestContext {onEvent :: forall a. (MIDIEvent.T -> IO a) -> IO a}
 
@@ -86,7 +85,7 @@ spec = do
             event <- events
             case MIDIEvent.body event of
               body@(MIDIEvent.NoteEv _ _) -> return body
-              _ -> fail "not event"
+              _ -> fail "not note"
 
           note :: MIDIEvent.Note
           [MIDIEvent.NoteEv _ note] = filteredData

@@ -1,8 +1,9 @@
 module Syzygy.Core where
 
-import Control.Monad
 import Control.Concurrent
-import Syzygy hiding (Config(..), Env(..), makeEnv)
+import Control.Monad
+
+import Syzygy.Signal
 
 data CoreConfig a = MkCoreConfig
   { bpmRef :: MVar Int
@@ -18,6 +19,9 @@ data Backend config a = MkBackend
 newtype Env a = MkEnv
   { sendEvents :: Rational -> [Event a] -> IO ()
   }
+
+delayOneBeat :: Int -> Int -> IO ()
+delayOneBeat bpm spb = threadDelay ((10^6 * 60) `div` bpm `div` spb)
 
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do

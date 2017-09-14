@@ -1,4 +1,3 @@
-{-# LANGUAGE FunctionalDependencies #-}
 module Syzygy.MIDI where
 
 import Control.Concurrent
@@ -14,14 +13,14 @@ import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
 
-import Syzygy hiding (Config(..), Env(..), makeEnv)
 import Syzygy.Core
+import Syzygy.Signal
 
 getAddress :: (SndSeq.OpenMode mode) => SndSeq.T mode -> String -> (Addr.T -> IO ()) -> IO ()
 getAddress h expectedPortName continuation = do
-  ClientInfo.queryLoop_ h $ \cinfo -> do -- for all clients:
+  ClientInfo.queryLoop_ h $ \cinfo -> do
     client <- ClientInfo.getClient cinfo
-    PortInfo.queryLoop_ h client $ \portInfo -> do -- for all ports:
+    PortInfo.queryLoop_ h client $ \portInfo -> do
       portName <- PortInfo.getName portInfo
       if
         portName == expectedPortName
@@ -92,7 +91,8 @@ backend :: Backend MIDIConfig Word8
 backend = MkBackend {toCoreConfig, makeEnv}
   where
     toCoreConfig :: MIDIConfig -> CoreConfig Word8
-    toCoreConfig MkMIDIConfig{bpmRef, signalRef, clockRef} = MkCoreConfig{bpmRef, signalRef, clockRef}
+    toCoreConfig MkMIDIConfig{bpmRef, signalRef, clockRef} =
+      MkCoreConfig{bpmRef, signalRef, clockRef}
 
     makeEnv :: MIDIConfig -> IO (Env Word8)
     makeEnv = makeMIDIEnv

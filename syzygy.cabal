@@ -32,9 +32,10 @@ library
     , alsa-core
     , alsa-seq
   exposed-modules:
-      Syzygy
       Syzygy.Core
       Syzygy.MIDI
+      Syzygy.Signal
+      Syzygy.SuperDirt
   other-modules:
       Paths_syzygy
   default-language: Haskell2010
@@ -62,6 +63,7 @@ test-suite syzygy-test
   other-modules:
       Syzygy.CoreSpec
       Syzygy.MIDISpec
-      SyzygySpec
+      Syzygy.SignalSpec
+      Syzygy.SuperDirtSpec
       TestUtils
   default-language: Haskell2010

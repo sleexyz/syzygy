@@ -5,7 +5,7 @@ import Control.Concurrent
 import qualified Data.Time as Time
 
 import Syzygy.Core
-import Syzygy hiding (Env(..), makeEnv)
+import Syzygy.Signal
 import TestUtils (shouldBeLessThan)
 
 makeMockBackend :: Chan (Rational, [Event String]) -> MVar () ->  Backend (CoreConfig String) String
