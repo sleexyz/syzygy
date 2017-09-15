@@ -102,10 +102,10 @@ spec = do
         deltas <- getDeltas bpm 1
         sum deltas `shouldBeLessThan` (0.1 * (60/fromIntegral bpm))
 
-      it "has a net shift of less than 2% the beat duration, at 120 bpm" $ do
+      it "has a net shift of less than 3% the beat duration, at 120 bpm" $ do
         let bpm = 120
         deltas <- getDeltas bpm 1
-        sum deltas `shouldBeLessThan` (0.02 * (60/fromIntegral bpm))
+        sum deltas `shouldBeLessThan` (0.03 * (60/fromIntegral bpm))
 
       it "has a net shift of less than 2% the beat duration, at 60 bpm" $ do
         let bpm = 60
