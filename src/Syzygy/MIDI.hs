@@ -16,7 +16,6 @@ import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
 -- import qualified System.Clock as Clock
 
-
 import Syzygy.Core
 import Syzygy.Signal
 

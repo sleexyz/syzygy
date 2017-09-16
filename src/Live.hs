@@ -9,7 +9,6 @@ import Syzygy.MIDI
 
 main :: IO ()
 main = do
-  print "Hello"
   MkMIDIConfig {signalRef} <- runOnce $ do
     signalRef <- newMVar mempty
     clockRef <- newMVar 0
