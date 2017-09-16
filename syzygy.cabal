@@ -32,7 +32,6 @@ library
     , alsa-core
     , alsa-seq
     , foreign-store
-    , clock
   exposed-modules:
       Live
       Syzygy.Core
@@ -43,8 +42,8 @@ library
       Paths_syzygy
   default-language: Haskell2010
 
-executable syzygy-midi
-  main-is: Live.hs
+executable syzygy-live
+  main-is: main.hs
   hs-source-dirs:
       src
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
@@ -59,8 +58,8 @@ executable syzygy-midi
     , alsa-core
     , alsa-seq
     , foreign-store
-    , clock
   other-modules:
+      Live
       Syzygy.Core
       Syzygy.MIDI
       Syzygy.Signal
@@ -84,7 +83,6 @@ test-suite syzygy-test
     , alsa-core
     , alsa-seq
     , foreign-store
-    , clock
     , syzygy
     , hspec
     , hspec-expectations

@@ -39,9 +39,9 @@ library:
   source-dirs: src
 
 executables:
-  syzygy-midi:
+  syzygy-live:
     source-dirs: src
-    main: Live.hs
+    main: main.hs
 
 tests:
   syzygy-test:
