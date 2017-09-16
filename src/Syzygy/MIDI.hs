@@ -14,7 +14,6 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
--- import qualified System.Clock as Clock
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -79,7 +78,6 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
-      -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
       let
         extractNote :: Event Word8 -> (Integer, Word8)
         extractNote MkEvent {interval=(eventStart, _), payload} = (nanosecs, payload)
@@ -95,8 +93,6 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
       return ()
 
   _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
-  -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-  -- _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
   continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
