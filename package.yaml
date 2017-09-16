@@ -33,6 +33,7 @@ dependencies:
   - alsa-core
   - alsa-seq
   - foreign-store
+  - clock
 
 library:
   source-dirs: src
@@ -42,12 +43,12 @@ executables:
     source-dirs: src
     main: main.hs
 
-# tests:
-#   syzygy-test:
-#     main: Spec.hs
-#     source-dirs: test
-#     dependencies:
-#       - syzygy
-#       - hspec
-#       - hspec-expectations
-#       - QuickCheck
+tests:
+  syzygy-test:
+    main: Spec.hs
+    source-dirs: test
+    dependencies:
+      - syzygy
+      - hspec
+      - hspec-expectations
+      - QuickCheck

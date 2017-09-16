@@ -4,7 +4,9 @@ import Control.Concurrent
 import Control.Monad (forever, void)
 import Data.Word (Word8)
 import qualified Sound.ALSA.Sequencer as SndSeq
+import qualified Sound.ALSA.Sequencer.RealTime as ALSARealTime
 import qualified Sound.ALSA.Sequencer.Address as Addr
+import qualified Sound.ALSA.Sequencer.Time as ALSATime
 import qualified Sound.ALSA.Sequencer.Client as Client
 import qualified Sound.ALSA.Sequencer.Client.Info as ClientInfo
 import qualified Sound.ALSA.Sequencer.Connect as Connect
@@ -12,6 +14,8 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
+import qualified System.Clock as Clock
+
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -54,50 +58,47 @@ data MIDIConfig = MkMIDIConfig
   , clockRef :: MVar Rational
   }
 
+stamp :: Integer -> Queue.T -> MIDIEvent.T -> MIDIEvent.T
+stamp nanosecs _ event = event
+  {
+    -- MIDIEvent.queue = queue -- TODO: figure out why queue doesn't work
+    MIDIEvent.time = ALSATime.consAbs $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
+  }
+
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address _ -> do
+makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
   let
-    _sendNote :: Word8 -> IO ()
-    _sendNote pitch = do
-      let event = MIDIEvent.simple address (makeNote pitch)
-      void $ MIDIEvent.output h event
+    sendNote :: (Integer, Word8) -> IO ()
+    sendNote (delay, pitch) = do
+      let event = stamp delay queue $ MIDIEvent.simple address (makeNote pitch)
+      _ <- MIDIEvent.output h event
+      return ()
 
     _tick :: IO ()
     _tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
-
-    _drain :: IO ()
-    _drain = void $ MIDIEvent.drainOutput h
-
-  (eventChan :: Chan (Int, Word8)) <- newChan
-  eventDispatcherThread <- forkIO $ forever $ do
-    (delay, payload) <- readChan eventChan
-    forkIO $ do
-      threadDelay delay
-      _sendNote payload
-      _drain
-
   let
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
+      now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
       let
-        extractNote :: Event Word8 -> (Int, Word8)
-        extractNote MkEvent {interval=(start, _), payload} = (floor delay, payload)
+        extractNote :: Event Word8 -> (Integer, Word8)
+        extractNote MkEvent {interval=(start, _), payload} = (nanosecs, payload)
           where
-            delay :: Rational
-            delay = fromIntegral (10^6 * 60) * (start - clockVal) / fromIntegral bpm
+            foo = (floor $ (10^9 * 60) * (start - clockVal) / fromIntegral bpm)
 
-        notes :: [(Int, Word8)]
+            nanosecs :: Integer
+            nanosecs = now + (foo - foo)
+
+        notes :: [(Integer, Word8)]
         notes = extractNote <$> events
 
-        _sendNoteToEventChan :: (Int, Word8) -> IO ()
-        _sendNoteToEventChan (delay, note) = writeChan eventChan (delay, note)
-
-      _ <- traverse _sendNoteToEventChan notes
+      _ <- traverse sendNote notes
+      _ <- MIDIEvent.drainOutput h
+      _ <- MIDIEvent.syncOutputQueue h
       return ()
-
+  _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
   continuation MkEnv {sendEvents}
-  killThread eventDispatcherThread
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
 makeMIDIEnv config = do
