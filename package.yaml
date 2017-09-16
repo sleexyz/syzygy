@@ -33,7 +33,7 @@ dependencies:
   - alsa-core
   - alsa-seq
   - foreign-store
-  - clock
+  # - clock
 
 library:
   source-dirs: src

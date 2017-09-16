@@ -97,6 +97,8 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
       _ <- MIDIEvent.drainOutput h
       return ()
   _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
+  -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  -- _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
   continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
