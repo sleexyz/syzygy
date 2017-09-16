@@ -32,16 +32,22 @@ dependencies:
   - network
   - alsa-core
   - alsa-seq
+  - foreign-store
 
 library:
   source-dirs: src
 
-tests:
-  syzygy-test:
-    main: Spec.hs
-    source-dirs: test
-    dependencies:
-      - syzygy
-      - hspec
-      - hspec-expectations
-      - QuickCheck
+executables:
+  syzygy-midi:
+    source-dirs: src
+    main: main.hs
+
+# tests:
+#   syzygy-test:
+#     main: Spec.hs
+#     source-dirs: test
+#     dependencies:
+#       - syzygy
+#       - hspec
+#       - hspec-expectations
+#       - QuickCheck

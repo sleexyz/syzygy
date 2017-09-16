@@ -31,6 +31,7 @@ library
     , network
     , alsa-core
     , alsa-seq
+    , foreign-store
   exposed-modules:
       Syzygy.Core
       Syzygy.MIDI
@@ -40,11 +41,10 @@ library
       Paths_syzygy
   default-language: Haskell2010
 
-test-suite syzygy-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
+executable syzygy-midi
+  main-is: main.hs
   hs-source-dirs:
-      test
+      src
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
   ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
@@ -56,14 +56,10 @@ test-suite syzygy-test
     , network
     , alsa-core
     , alsa-seq
-    , syzygy
-    , hspec
-    , hspec-expectations
-    , QuickCheck
+    , foreign-store
   other-modules:
-      Syzygy.CoreSpec
-      Syzygy.MIDISpec
-      Syzygy.SignalSpec
-      Syzygy.SuperDirtSpec
-      TestUtils
+      Syzygy.Core
+      Syzygy.MIDI
+      Syzygy.Signal
+      Syzygy.SuperDirt
   default-language: Haskell2010

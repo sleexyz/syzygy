@@ -31,7 +31,7 @@ getAddress h expectedPortName continuation = do
       else
         return ()
 
-connectTo :: String -> ((SndSeq.T SndSeq.DuplexMode, Addr.T) -> IO ()) -> IO ()
+connectTo :: String -> (SndSeq.T SndSeq.DuplexMode -> Addr.T -> Queue.T -> IO ()) -> IO ()
 connectTo expectedPortName continuation = do
   SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.DuplexMode) -> do
     client <- Client.getId h
@@ -41,7 +41,8 @@ connectTo expectedPortName continuation = do
       let address = Addr.Cons client port
       getAddress h expectedPortName $ \sinkAddress -> do
         Connect.withTo h port sinkAddress $ \_ -> do
-          continuation (h, address)
+          Queue.with h $ \queue -> do
+            continuation h address queue
 
 makeNote :: Word8 -> MIDIEvent.Data
 makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
@@ -54,10 +55,12 @@ data MIDIConfig = MkMIDIConfig
   }
 
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig { midiPortName } continuation = connectTo midiPortName $ \(h, address) ->
+makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address _ -> do
   let
     _sendNote :: Word8 -> IO ()
-    _sendNote pitch = void $ MIDIEvent.output h $ MIDIEvent.simple address (makeNote pitch)
+    _sendNote pitch = do
+      let event = MIDIEvent.simple address (makeNote pitch)
+      void $ MIDIEvent.output h event
 
     _tick :: IO ()
     _tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
@@ -65,14 +68,36 @@ makeMIDIEnv' MkMIDIConfig { midiPortName } continuation = connectTo midiPortName
     _drain :: IO ()
     _drain = void $ MIDIEvent.drainOutput h
 
-    sendEvents :: Rational -> [Event Word8] -> IO ()
-    sendEvents _ events = do
-      let midiEvents = (\MkEvent {payload} -> payload) <$> events
-      _ <- traverse _sendNote midiEvents
-      _tick
+  (eventChan :: Chan (Int, Word8)) <- newChan
+  eventDispatcherThread <- forkIO $ forever $ do
+    (delay, payload) <- readChan eventChan
+    forkIO $ do
+      threadDelay delay
+      _sendNote payload
       _drain
-  in
-    continuation MkEnv {sendEvents}
+
+  let
+    sendEvents :: Rational -> [Event Word8] -> IO ()
+    sendEvents clockVal events = do
+      bpm <- readMVar bpmRef
+      let
+        extractNote :: Event Word8 -> (Int, Word8)
+        extractNote MkEvent {interval=(start, _), payload} = (floor delay, payload)
+          where
+            delay :: Rational
+            delay = fromIntegral (10^6 * 60) * (start - clockVal) / fromIntegral bpm
+
+        notes :: [(Int, Word8)]
+        notes = extractNote <$> events
+
+        _sendNoteToEventChan :: (Int, Word8) -> IO ()
+        _sendNoteToEventChan (delay, note) = writeChan eventChan (delay, note)
+
+      _ <- traverse _sendNoteToEventChan notes
+      return ()
+
+  continuation MkEnv {sendEvents}
+  killThread eventDispatcherThread
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
 makeMIDIEnv config = do
@@ -96,12 +121,3 @@ backend = MkBackend {toCoreConfig, makeEnv}
 
     makeEnv :: MIDIConfig -> IO (Env Word8)
     makeEnv = makeMIDIEnv
-
-main :: IO ()
-main = do
-  signalRef <- newMVar (embed 30)
-  clockRef <- newMVar 0
-  bpmRef <- newMVar 120
-  let midiPortName = "UM-ONE MIDI 1"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
-  runBackend backend config
