@@ -14,7 +14,7 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
-import qualified System.Clock as Clock
+-- import qualified System.Clock as Clock
 
 
 import Syzygy.Core
@@ -59,10 +59,10 @@ data MIDIConfig = MkMIDIConfig
   }
 
 stamp :: Integer -> Queue.T -> MIDIEvent.T -> MIDIEvent.T
-stamp nanosecs _ event = event
+stamp nanosecs queue event = event
   {
-    -- MIDIEvent.queue = queue -- TODO: figure out why queue doesn't work
-    MIDIEvent.time = ALSATime.consAbs $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
+    MIDIEvent.queue = queue
+  , MIDIEvent.time = ALSATime.consRel $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
   }
 
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
@@ -80,22 +80,21 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
-      now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+      -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
       let
         extractNote :: Event Word8 -> (Integer, Word8)
-        extractNote MkEvent {interval=(start, _), payload} = (nanosecs, payload)
+        extractNote MkEvent {interval=(eventStart, _), payload} = (nanosecs, payload)
           where
-            foo = (floor $ (10^9 * 60) * (start - clockVal) / fromIntegral bpm)
+            foo = floor $ (10^9 * 60) * (eventStart - clockVal) / fromIntegral bpm
 
             nanosecs :: Integer
-            nanosecs = now + (foo - foo)
+            nanosecs = foo
 
         notes :: [(Integer, Word8)]
         notes = extractNote <$> events
 
       _ <- traverse sendNote notes
       _ <- MIDIEvent.drainOutput h
-      _ <- MIDIEvent.syncOutputQueue h
       return ()
   _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
   continuation MkEnv {sendEvents}

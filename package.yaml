@@ -41,7 +41,7 @@ library:
 executables:
   syzygy-midi:
     source-dirs: src
-    main: main.hs
+    main: Live.hs
 
 tests:
   syzygy-test:
