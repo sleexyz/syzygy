@@ -46,9 +46,6 @@ connectTo expectedPortName continuation = do
           Queue.with h $ \queue -> do
             continuation h address queue
 
-makeNote :: Word8 -> MIDIEvent.Data
-makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
-
 data MIDIConfig = MkMIDIConfig
   { midiPortName :: String
   , bpmRef :: MVar Int
@@ -56,39 +53,45 @@ data MIDIConfig = MkMIDIConfig
   , clockRef :: MVar Rational
   }
 
-stamp :: Integer -> Queue.T -> MIDIEvent.T -> MIDIEvent.T
-stamp nanosecs queue event = event
+stamp :: Queue.T -> Integer -> MIDIEvent.T -> MIDIEvent.T
+stamp queue nanosecs event = event
   {
     MIDIEvent.queue = queue
   , MIDIEvent.time = ALSATime.consRel $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
   }
 
+makeNoteOnData :: Word8 -> MIDIEvent.Data
+makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
+
+makeNoteOffData :: Word8 -> MIDIEvent.Data
+makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
+
+noteOn :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
+noteOn address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOnData pitch)
+
+noteOff :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
+noteOff address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOffData pitch)
+
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
 makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
-  let
-    sendNote :: (Integer, Word8) -> IO ()
-    sendNote (delay, pitch) = do
-      let event = stamp delay queue $ MIDIEvent.simple address (makeNote pitch)
-      _ <- MIDIEvent.output h event
-      return ()
-
-    _tick :: IO ()
-    _tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
   let
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
       let
-        extractNote :: Event Word8 -> (Integer, Word8)
-        extractNote MkEvent {interval=(eventStart, _), payload} = (nanosecs, payload)
+        extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
+        extractMIDIEvents MkEvent {interval=(eventStart, eventEnd), payload} =
+            [ noteOn address queue (getDelay eventStart) payload
+            , noteOff address queue (getDelay eventEnd) payload
+            ]
           where
-            nanosecs :: Integer
-            nanosecs = floor $ (10^9 * 60) * (eventStart - clockVal) / fromIntegral bpm
+            getDelay :: Rational -> Integer
+            getDelay val = floor $ (10^9 * 60) * (val - clockVal) / fromIntegral bpm
 
-        notes :: [(Integer, Word8)]
-        notes = extractNote <$> events
+        notes :: [MIDIEvent.T]
+        notes =  events >>= extractMIDIEvents
 
-      _ <- traverse sendNote notes
+      _ <- traverse (MIDIEvent.output h)notes
       _ <- MIDIEvent.drainOutput h
       return ()
 
