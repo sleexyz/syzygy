@@ -3,7 +3,6 @@ module Live where
 import Control.Concurrent
 import Data.Word (Word8)
 
-
 import Syzygy.Core
 import Syzygy.Signal
 import Syzygy.MIDI
@@ -20,7 +19,6 @@ main = do
     _ <- forkIO $ runBackend backend config
     return config
   modifyMVar_ signalRef $ const . return $ sig
-  threadDelay 1000000000
 
 sig :: Signal Word8
 sig = nest $ (embed$) <$> [x + 40 | x <- [0, 12, 28, 24, 16]]

@@ -65,8 +65,8 @@ backend = MkBackend {toCoreConfig, makeEnv}
 
 main :: IO ()
 main = do
-  bpmRef <- newMVar 60
-  signalRef <- newMVar $ fast 4 $ nest [embed "bd", fast 2 $ embed "bd"]
+  bpmRef <-  newMVar 60
+  signalRef <- newMVar mempty
   clockRef <- newMVar 0
   let superDirtPortNumber = 57120
   let config = MkSuperDirtConfig { bpmRef, signalRef, clockRef, superDirtPortNumber }

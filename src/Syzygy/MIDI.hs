@@ -85,10 +85,8 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
         extractNote :: Event Word8 -> (Integer, Word8)
         extractNote MkEvent {interval=(eventStart, _), payload} = (nanosecs, payload)
           where
-            foo = floor $ (10^9 * 60) * (eventStart - clockVal) / fromIntegral bpm
-
             nanosecs :: Integer
-            nanosecs = foo
+            nanosecs = floor $ (10^9 * 60) * (eventStart - clockVal) / fromIntegral bpm
 
         notes :: [(Integer, Word8)]
         notes = extractNote <$> events
@@ -96,6 +94,7 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
       _ <- traverse sendNote notes
       _ <- MIDIEvent.drainOutput h
       return ()
+
   _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
   -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   -- _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
