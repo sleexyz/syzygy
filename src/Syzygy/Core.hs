@@ -20,8 +20,8 @@ newtype Env a = MkEnv
   { sendEvents :: Rational -> [Event a] -> IO ()
   }
 
-delayOneBeat :: Int -> Int -> IO ()
-delayOneBeat bpm ppb = threadDelay ((10^6 * 60) `div` bpm `div` ppb)
+_delay :: Int -> Int -> IO ()
+_delay bpm ppb = threadDelay ((10^6 * 60) `div` bpm `div` ppb)
 
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
@@ -34,4 +34,4 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral ppb), x))
     let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral ppb))
     sendEvents clockVal events
-    delayOneBeat bpm ppb
+    _delay bpm ppb
