@@ -75,12 +75,6 @@ noteOff address queue delay pitch = stamp queue delay $ MIDIEvent.simple address
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
 makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
   let
-    sendEvent :: MIDIEvent.T -> IO ()
-    sendEvent event = do
-      _ <- MIDIEvent.output h event
-      return ()
-
-  let
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
@@ -97,7 +91,7 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
         notes :: [MIDIEvent.T]
         notes =  events >>= extractMIDIEvents
 
-      _ <- traverse sendEvent notes
+      _ <- traverse (MIDIEvent.output h)notes
       _ <- MIDIEvent.drainOutput h
       return ()
 
