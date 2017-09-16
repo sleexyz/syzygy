@@ -6,8 +6,22 @@ author:              Sean Lee
 maintainer:          freshdried@gmail.com
 copyright:           BSD3
 category:            Other
+ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
 extra-source-files:
   - README.md
+
+default-extensions:
+  - DeriveFunctor
+  - DuplicateRecordFields
+  - GeneralizedNewtypeDeriving
+  - NamedFieldPuns
+  - OverloadedStrings
+  - ScopedTypeVariables
+  - TypeApplications
+  - ViewPatterns
+  - MultiParamTypeClasses
+  - RankNTypes
+
 
 dependencies:
   - base >= 4.7 && < 5
@@ -16,6 +30,8 @@ dependencies:
   - bytestring
   - time
   - network
+  - alsa-core
+  - alsa-seq
 
 library:
   source-dirs: src
@@ -23,7 +39,6 @@ library:
 tests:
   syzygy-test:
     main: Spec.hs
-    ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror
     source-dirs: test
     dependencies:
       - syzygy

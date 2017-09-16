@@ -20,6 +20,8 @@ extra-source-files:
 library
   hs-source-dirs:
       src
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
       base >= 4.7 && < 5
     , profunctors
@@ -27,8 +29,13 @@ library
     , bytestring
     , time
     , network
+    , alsa-core
+    , alsa-seq
   exposed-modules:
-      Syzygy
+      Syzygy.Core
+      Syzygy.MIDI
+      Syzygy.Signal
+      Syzygy.SuperDirt
   other-modules:
       Paths_syzygy
   default-language: Haskell2010
@@ -38,7 +45,8 @@ test-suite syzygy-test
   main-is: Spec.hs
   hs-source-dirs:
       test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
       base >= 4.7 && < 5
     , profunctors
@@ -46,11 +54,16 @@ test-suite syzygy-test
     , bytestring
     , time
     , network
+    , alsa-core
+    , alsa-seq
     , syzygy
     , hspec
     , hspec-expectations
     , QuickCheck
   other-modules:
-      SyzygySpec
+      Syzygy.CoreSpec
+      Syzygy.MIDISpec
+      Syzygy.SignalSpec
+      Syzygy.SuperDirtSpec
       TestUtils
   default-language: Haskell2010
