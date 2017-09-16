@@ -35,7 +35,7 @@ connectTo :: String -> ((SndSeq.T SndSeq.DuplexMode, Addr.T) -> IO ()) -> IO ()
 connectTo expectedPortName continuation = do
   SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.DuplexMode) -> do
     client <- Client.getId h
-    Client.setName h ("Syzygy MIDI Client")
+    Client.setName h "Syzygy MIDI Client"
     let portCap = (Port.caps [Port.capRead, Port.capSubsRead, Port.capWrite, Port.capSubsWrite])
     Port.withSimple h "Output" portCap Port.typeHardware $ \port -> do
       let address = Addr.Cons client port

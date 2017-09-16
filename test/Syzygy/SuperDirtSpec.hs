@@ -1,57 +1,67 @@
-
 module Syzygy.SuperDirtSpec where
 
 import Control.Concurrent
-import TestUtils
-  (
-    shouldBeLessThan
-  , withMockOSCServer
-  , diffTimestamp
-  )
+import TestUtils (shouldBeLessThan)
 import Test.Hspec
-import Vivid.OSC (OSCBundle(..), OSCDatum(OSC_S), OSC(..), Timestamp )
+import Vivid.OSC (OSCBundle(..), decodeOSCBundle, OSCDatum(OSC_S), OSC(..), Timestamp(..) )
+import Control.Monad
 
 import Syzygy.SuperDirt
 import Syzygy.Signal
 import Syzygy.Core
 import qualified Data.ByteString as BS
+import qualified Network.Socket as Network
+import qualified Network.Socket.ByteString as NetworkBS
+
+diffTimestamp :: Timestamp -> Timestamp -> Double
+diffTimestamp (Timestamp x) (Timestamp y) = x - y
 
 data TestContext = MkTestContext { receiveOSCBundle :: (OSCBundle -> IO ()) -> IO () }
 
-_withOSCHandler :: Signal BS.ByteString -> (OSCBundle -> IO ()) -> IO SuperDirtConfig
-_withOSCHandler defaultSignal handler = withMockOSCServer handler $ \superDirtPortNumber -> do
-  bpmRef <- newMVar 60
-  signalRef <- newMVar defaultSignal
-  clockRef <- newMVar 0
-  return MkSuperDirtConfig{superDirtPortNumber, bpmRef, signalRef, clockRef}
+withMockOSCServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO ())  -> IO ()
+withMockOSCServer handleOSCBundle continuation = do
+  address <- head <$> Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show Network.aNY_PORT))
+  socket <- Network.socket (Network.addrFamily address) Network.Datagram Network.defaultProtocol
+  Network.bind socket (Network.addrAddress address)
+  threadId <- forkIO $ forever $ do
+    msg <- NetworkBS.recv socket 4096
+    let Right bundle = decodeOSCBundle msg
+    handleOSCBundle bundle
+  portNumber <- Network.socketPort socket
+  continuation portNumber
+  killThread threadId
+  return ()
 
-withMockSuperDirt :: Signal BS.ByteString -> (TestContext -> IO ()) -> IO ()
-withMockSuperDirt defaultSignal cont = do
+withMockSuperDirt :: Signal BS.ByteString -> Int -> (TestContext -> IO ()) -> IO ()
+withMockSuperDirt defaultSignal bpm continuation = do
   (bundleChan :: MVar OSCBundle) <- newEmptyMVar
-  config <- _withOSCHandler defaultSignal $ putMVar bundleChan
-  clientThread <- forkIO $ runBackend backend config
-  let receiveOSCBundle cont = do
-        bundleVal <- takeMVar bundleChan
-        cont bundleVal
-  cont MkTestContext{receiveOSCBundle}
-  killThread clientThread
-
+  withMockOSCServer (putMVar bundleChan) $ \superDirtPortNumber -> do
+    bpmRef <- newMVar bpm
+    signalRef <- newMVar defaultSignal
+    clockRef <- newMVar 0
+    let config = MkSuperDirtConfig{superDirtPortNumber, bpmRef, signalRef, clockRef}
+    clientThread <- forkIO $ runBackend backend config
+    let receiveOSCBundle bundleHandler = do
+          bundleVal <- takeMVar bundleChan
+          bundleHandler bundleVal
+    continuation MkTestContext{receiveOSCBundle}
+    killThread clientThread
 
 spec :: Spec
 spec = do
   describe "SuperDirt backend" $ do
     it "can send events" $ do
+      let bpm = 60
       let signal = nest [embed "bd", embed "sn"]
-      withMockSuperDirt signal $ \MkTestContext{receiveOSCBundle} -> do
-        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> do
-          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> do
-          message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+      withMockSuperDirt signal bpm $ \MkTestContext{receiveOSCBundle} -> do
+        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
     it "sends events with the right timestamps" $ do
+      let bpm = 60
       let signal = nest [embed "bd", embed "sn"]
       (timestampsRef :: MVar [Vivid.OSC.Timestamp]) <- newMVar []
-      withMockSuperDirt signal $ \MkTestContext{receiveOSCBundle} -> do
+      withMockSuperDirt signal bpm $ \MkTestContext{receiveOSCBundle} -> do
         sequence_ $ replicate 4 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> do
           modifyMVar_ timestampsRef (\xs -> return $ timestamp:xs)
 

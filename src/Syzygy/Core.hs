@@ -21,17 +21,17 @@ newtype Env a = MkEnv
   }
 
 delayOneBeat :: Int -> Int -> IO ()
-delayOneBeat bpm spb = threadDelay ((10^6 * 60) `div` bpm `div` spb)
+delayOneBeat bpm ppb = threadDelay ((10^6 * 60) `div` bpm `div` ppb)
 
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
-  let tpb = 24 -- 24 pulses per quarter note
+  let ppb = 24 -- 24 pulses per beat
   MkEnv{sendEvents} <- makeEnv config
   forever $ do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
-    clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral tpb), x))
-    let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral tpb))
+    clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral ppb), x))
+    let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral ppb))
     sendEvents clockVal events
-    delayOneBeat bpm tpb
+    delayOneBeat bpm ppb
