@@ -78,7 +78,7 @@ spec = do
       config@MkMIDIConfig{signalRef} <- makeDefaultConfig
       modifyMVar_ signalRef (const $ return $ embed 60)
       withMockMIDIServer config $ \MkTestContext{onEvent} -> do
-        events <- sequence $ replicate 2 $ onEvent return
+        events <- sequence $ replicate 3 $ onEvent return
         let
           filteredData :: [MIDIEvent.Data]
           filteredData = do
@@ -87,7 +87,12 @@ spec = do
               body@(MIDIEvent.NoteEv _ _) -> return body
               _ -> fail "not note"
 
-          note :: MIDIEvent.Note
-          [MIDIEvent.NoteEv _ note] = filteredData
+          noteEv1, noteEv2 :: MIDIEvent.NoteEv
+          note1, note2 :: MIDIEvent.Note
+          [ MIDIEvent.NoteEv noteEv1 note1, MIDIEvent.NoteEv noteEv2 note2] = filteredData
 
-        getPitch note `shouldBe` 60
+        getPitch note1 `shouldBe` 60
+        noteEv1 `shouldBe` MIDIEvent.NoteOn
+
+        getPitch note2 `shouldBe` 60
+        noteEv2 `shouldBe` MIDIEvent.NoteOff
