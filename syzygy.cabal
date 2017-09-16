@@ -31,13 +31,39 @@ library
     , network
     , alsa-core
     , alsa-seq
+    , foreign-store
   exposed-modules:
+      Live
       Syzygy.Core
       Syzygy.MIDI
       Syzygy.Signal
       Syzygy.SuperDirt
   other-modules:
       Paths_syzygy
+  default-language: Haskell2010
+
+executable syzygy-live
+  main-is: main.hs
+  hs-source-dirs:
+      src
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
+  build-depends:
+      base >= 4.7 && < 5
+    , profunctors
+    , vivid-osc
+    , bytestring
+    , time
+    , network
+    , alsa-core
+    , alsa-seq
+    , foreign-store
+  other-modules:
+      Live
+      Syzygy.Core
+      Syzygy.MIDI
+      Syzygy.Signal
+      Syzygy.SuperDirt
   default-language: Haskell2010
 
 test-suite syzygy-test
@@ -56,6 +82,7 @@ test-suite syzygy-test
     , network
     , alsa-core
     , alsa-seq
+    , foreign-store
     , syzygy
     , hspec
     , hspec-expectations

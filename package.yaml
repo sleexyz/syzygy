@@ -32,9 +32,16 @@ dependencies:
   - network
   - alsa-core
   - alsa-seq
+  - foreign-store
+  # - clock
 
 library:
   source-dirs: src
+
+executables:
+  syzygy-live:
+    source-dirs: src
+    main: main.hs
 
 tests:
   syzygy-test:

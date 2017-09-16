@@ -2,6 +2,7 @@ module Syzygy.Core where
 
 import Control.Concurrent
 import Control.Monad
+import qualified Foreign.Store as ForeignStore
 
 import Syzygy.Signal
 
@@ -35,3 +36,14 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral ppb))
     sendEvents clockVal events
     _delay bpm ppb
+
+runOnce :: IO a -> IO a
+runOnce computation = do
+  let index = 0
+  result <- ForeignStore.lookupStore index
+  case result of
+    Just _ -> ForeignStore.readStore (ForeignStore.Store index)
+    Nothing -> do
+      x <- computation
+      ForeignStore.writeStore (ForeignStore.Store index) x
+      return x

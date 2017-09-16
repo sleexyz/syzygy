@@ -78,7 +78,7 @@ spec = do
       config@MkMIDIConfig{signalRef} <- makeDefaultConfig
       modifyMVar_ signalRef (const $ return $ embed 60)
       withMockMIDIServer config $ \MkTestContext{onEvent} -> do
-        events <- sequence $ replicate 24 $ onEvent return
+        events <- sequence $ replicate 2 $ onEvent return
         let
           filteredData :: [MIDIEvent.Data]
           filteredData = do

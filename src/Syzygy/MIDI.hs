@@ -4,7 +4,9 @@ import Control.Concurrent
 import Control.Monad (forever, void)
 import Data.Word (Word8)
 import qualified Sound.ALSA.Sequencer as SndSeq
+import qualified Sound.ALSA.Sequencer.RealTime as ALSARealTime
 import qualified Sound.ALSA.Sequencer.Address as Addr
+import qualified Sound.ALSA.Sequencer.Time as ALSATime
 import qualified Sound.ALSA.Sequencer.Client as Client
 import qualified Sound.ALSA.Sequencer.Client.Info as ClientInfo
 import qualified Sound.ALSA.Sequencer.Connect as Connect
@@ -12,6 +14,7 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
+-- import qualified System.Clock as Clock
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -31,7 +34,7 @@ getAddress h expectedPortName continuation = do
       else
         return ()
 
-connectTo :: String -> ((SndSeq.T SndSeq.DuplexMode, Addr.T) -> IO ()) -> IO ()
+connectTo :: String -> (SndSeq.T SndSeq.DuplexMode -> Addr.T -> Queue.T -> IO ()) -> IO ()
 connectTo expectedPortName continuation = do
   SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.DuplexMode) -> do
     client <- Client.getId h
@@ -41,7 +44,8 @@ connectTo expectedPortName continuation = do
       let address = Addr.Cons client port
       getAddress h expectedPortName $ \sinkAddress -> do
         Connect.withTo h port sinkAddress $ \_ -> do
-          continuation (h, address)
+          Queue.with h $ \queue -> do
+            continuation h address queue
 
 makeNote :: Word8 -> MIDIEvent.Data
 makeNote pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
@@ -53,26 +57,47 @@ data MIDIConfig = MkMIDIConfig
   , clockRef :: MVar Rational
   }
 
+stamp :: Integer -> Queue.T -> MIDIEvent.T -> MIDIEvent.T
+stamp nanosecs queue event = event
+  {
+    MIDIEvent.queue = queue
+  , MIDIEvent.time = ALSATime.consRel $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
+  }
+
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig { midiPortName } continuation = connectTo midiPortName $ \(h, address) ->
+makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
   let
-    _sendNote :: Word8 -> IO ()
-    _sendNote pitch = void $ MIDIEvent.output h $ MIDIEvent.simple address (makeNote pitch)
+    sendNote :: (Integer, Word8) -> IO ()
+    sendNote (delay, pitch) = do
+      let event = stamp delay queue $ MIDIEvent.simple address (makeNote pitch)
+      _ <- MIDIEvent.output h event
+      return ()
 
     _tick :: IO ()
     _tick = void $ MIDIEvent.output h $ MIDIEvent.simple address $ MIDIEvent.QueueEv (MIDIEvent.QueueClock) Queue.direct
-
-    _drain :: IO ()
-    _drain = void $ MIDIEvent.drainOutput h
-
+  let
     sendEvents :: Rational -> [Event Word8] -> IO ()
-    sendEvents _ events = do
-      let midiEvents = (\MkEvent {payload} -> payload) <$> events
-      _ <- traverse _sendNote midiEvents
-      _tick
-      _drain
-  in
-    continuation MkEnv {sendEvents}
+    sendEvents clockVal events = do
+      bpm <- readMVar bpmRef
+      -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+      let
+        extractNote :: Event Word8 -> (Integer, Word8)
+        extractNote MkEvent {interval=(eventStart, _), payload} = (nanosecs, payload)
+          where
+            nanosecs :: Integer
+            nanosecs = floor $ (10^9 * 60) * (eventStart - clockVal) / fromIntegral bpm
+
+        notes :: [(Integer, Word8)]
+        notes = extractNote <$> events
+
+      _ <- traverse sendNote notes
+      _ <- MIDIEvent.drainOutput h
+      return ()
+
+  _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
+  -- now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  -- _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
+  continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
 makeMIDIEnv config = do
@@ -96,12 +121,3 @@ backend = MkBackend {toCoreConfig, makeEnv}
 
     makeEnv :: MIDIConfig -> IO (Env Word8)
     makeEnv = makeMIDIEnv
-
-main :: IO ()
-main = do
-  signalRef <- newMVar (embed 30)
-  clockRef <- newMVar 0
-  bpmRef <- newMVar 120
-  let midiPortName = "UM-ONE MIDI 1"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
-  runBackend backend config
