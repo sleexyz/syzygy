@@ -32,6 +32,8 @@ library
     , alsa-core
     , alsa-seq
     , foreign-store
+    , vector
+    , mwc-random
   exposed-modules:
       Live
       Syzygy.Core
@@ -58,6 +60,8 @@ executable syzygy-live
     , alsa-core
     , alsa-seq
     , foreign-store
+    , vector
+    , mwc-random
   other-modules:
       Live
       Syzygy.Core
@@ -83,6 +87,8 @@ test-suite syzygy-test
     , alsa-core
     , alsa-seq
     , foreign-store
+    , vector
+    , mwc-random
     , syzygy
     , hspec
     , hspec-expectations

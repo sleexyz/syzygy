@@ -45,17 +45,16 @@ fast n MkSignal {signal=originalSignal} = MkSignal {signal}
       & lmap (\(start, end) -> ( start * n, end * n ))
       & (rmap . fmap) (\ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
 
+slow :: Rational -> Signal a -> Signal a
+slow n = fast (1/n)
+
 -- | filter a signal by a predicate on events
 _filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
 _filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
 
--- | interleave signals within a single cycle
-interleave :: [Signal a] -> Signal a
-interleave sigs = mconcat $ filterAndShift <$> zip sigs [0..]
+_filterByIndexSieve :: Rational -> Rational -> Signal a -> Signal a
+_filterByIndexSieve n i = _filterSignal (makeSieve i)
   where
-    n :: Rational
-    n = fromIntegral $ length sigs
-
     makeSieve :: Rational -> Event a -> Bool
     makeSieve i MkEvent { interval = (start, _) } =
       let
@@ -63,14 +62,26 @@ interleave sigs = mconcat $ filterAndShift <$> zip sigs [0..]
       in
         startFract >= (i/ n) && startFract < ((i + 1) / n)
 
-    filterAndShift:: (Signal a, Rational) -> Signal a
-    filterAndShift (sig, i) = sig
-      & shift (i/n)
-      & _filterSignal (makeSieve i)
+-- | switch between signals within a single cycle
+seive :: [Signal a] -> Signal a
+seive = makeListCombinator $ \n i sig -> sig
+  & _filterByIndexSieve n i
+
+-- | interleave signals within a single cycle
+interleave :: [Signal a] -> Signal a
+interleave = makeListCombinator $ \n i sig -> sig
+  & shift (i/n)
+  & _filterByIndexSieve n i
 
 -- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a
-nest sigs = interleave $ fast n <$> sigs
+nest = makeListCombinator $ \n i sig -> sig
+  & fast n
+  & shift (i/n)
+  & _filterByIndexSieve n i
+
+makeListCombinator :: (Rational -> Rational -> Signal a -> Signal a) -> [Signal a] -> Signal a
+makeListCombinator handler sigs = mconcat $ zipWith (handler n) [0..] sigs
   where
     n :: Rational
     n = fromIntegral $ length sigs
