@@ -52,13 +52,4 @@ tt i mod sig = sig
   & fast i
 
 sig :: Signal Word8
-sig = embed 0
-  & with mconcat
-    [ id
-    , fast 5 . with seive
-      [ fmap (+12)
-      , fmap (+10)
-      , fmap (+3)
-      ]
-    ]
-  & fmap (+60)
+sig = (nest [embed 60, embed 48])

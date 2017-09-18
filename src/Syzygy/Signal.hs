@@ -1,7 +1,7 @@
 
 module Syzygy.Signal where
 
-import Data.Profunctor (lmap, rmap)
+import Data.Profunctor (lmap, rmap, Profunctor(..))
 import Data.Function ((&))
 
 type Interval = (Rational, Rational)
@@ -11,8 +11,17 @@ data Event a = MkEvent
   , payload :: a
   } deriving (Eq, Show, Functor)
 
-newtype Signal a = MkSignal { signal :: Interval -> [Event a] }
+mapInterval :: (Interval -> Interval) -> Event a -> Event a
+mapInterval f event = event {interval=f (interval event)}
+
+newtype Signal_ i b = MkSignal { signal :: i -> [b] }
   deriving (Functor, Monoid)
+
+instance Profunctor Signal_ where
+  lmap (modQuery) sig = MkSignal $ \query -> signal sig $ modQuery query
+  rmap (modEvent) sig = MkSignal $ \query -> fmap modEvent $ signal sig query
+
+type Signal a = Signal_ Interval (Event a)
 
 embed :: a -> Signal a
 embed x = MkSignal $ \(queryStart, queryEnd) -> do
@@ -58,11 +67,36 @@ _filterByIndexSieve n i = _filterSignal (makeSieve i)
     makeSieve :: Rational -> Event a -> Bool
     makeSieve i MkEvent { interval = (start, _) } =
       let
-        startFract = snd $ properFraction @ Rational @ Integer start
+        startFract = snd . properFraction @ Rational @ Integer $ start
       in
         startFract >= (i/ n) && startFract < ((i + 1) / n)
 
+fract :: Rational -> Rational
+fract x = snd . properFraction @ Rational @ Integer $ x
+
+floor_ :: Rational -> Rational
+floor_ = fromIntegral . floor
+
+modR :: Rational -> Rational -> Rational
+modR x y = fract (x/y) * y
+
+cat :: [Signal a] -> Signal a
+cat sigs = mconcat $ do
+  let n = fromIntegral $ length sigs
+  (sig, i) <- zip sigs [0..]
+  return $ MkSignal $ \(queryStart, queryEnd) -> do
+    let f x = floor_ (x/n) + fract x -- TODO: life would be much easier if I could carry over this mapped value, in addition
+    let g x = x + i
+    let (qs, qe) = (f queryStart, f queryEnd)
+    event@MkEvent{interval=(start, _)} <- signal sig (qs, qe)
+    event <- event
+      & mapInterval (\(s, e) -> (g s, g e))
+      & return
+    return event
+
+
 -- | switch between signals within a single cycle
+-- TODO: make non lossy
 seive :: [Signal a] -> Signal a
 seive = makeListCombinator $ \n i sig -> sig
   & _filterByIndexSieve n i

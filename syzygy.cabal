@@ -21,7 +21,6 @@ library
   hs-source-dirs:
       src
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
       base >= 4.7 && < 5
     , profunctors
@@ -49,7 +48,6 @@ executable syzygy-live
   hs-source-dirs:
       src
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
       base >= 4.7 && < 5
     , profunctors
@@ -76,7 +74,6 @@ test-suite syzygy-test
   hs-source-dirs:
       test
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing
   build-depends:
       base >= 4.7 && < 5
     , profunctors

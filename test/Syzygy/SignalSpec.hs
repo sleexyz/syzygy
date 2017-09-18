@@ -1,6 +1,7 @@
 
 module Syzygy.SignalSpec where
 
+import Data.Function ((&))
 import Data.Monoid ((<>))
 import Test.Hspec
 import qualified Test.QuickCheck as QC
@@ -194,3 +195,35 @@ spec = do
             <> signal (shift (0/3) $ fast 3 a) (3/3, 4/3)
             <> signal (shift (1/3) $ fast 3 b) (4/3, 5/3)
             <> signal (shift (2/3) $ fast 3 c) (5/3, 6/3)
+
+    describe "cat" $ do
+      let sig = nest [embed "a", embed "b"] & slow 2
+
+      it "should be silent with 0" $ do
+        signal (cat ([] :: [Signal ()])) (0, 1) `shouldMatchList` signal mempty (0, 1)
+
+      it "should no-op with 1" $ do
+        signal (cat [sig]) (0, 1) `shouldMatchList` signal sig (0, 1)
+
+      it "should layer with 2" $ do
+        sequence $ (print$) <$> signal (cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]) (0,2)
+        print "foo"
+        sequence $ (print$) <$> signal (pruneSignal $ cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]) (0,2)
+        print "foo"
+
+      it "should layer with 4" $ do
+        sequence $ (print$) <$> signal (cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]) (0,4)
+        print "foo"
+        sequence $ (print$) <$> signal (pruneSignal $ cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]) (0,4)
+        return ()
+
+        -- signal (cat [sig, sig]) (0,2) `shouldMatchList`
+        --   [ MkEvent {interval = (0,1), payload = "a"}
+        --   , MkEvent {interval = (1,2), payload = "a"}
+        --   ]
+
+      -- it "should only have" $ do
+      --   print "foo"
+      --   sequence_ $ (print$) <$> signal (rep 1 sig) (0, 2)
+      --   print "foo"
+      --   sequence_ $ (print$) <$> signal (rep 2 sig) (0, 2)
