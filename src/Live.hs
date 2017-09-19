@@ -24,7 +24,7 @@ setup = do
   signalRef <- newMVar mempty
   clockRef <- newMVar 0
   bpmRef <- newMVar 120
-  let midiPortName = "VirMIDI 2-0"
+  let midiPortName = "UM-ONE MIDI 1"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
   _ <- forkIO $ runBackend backend config
   return config
@@ -32,7 +32,7 @@ setup = do
 main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
-  modifyMVar_ bpmRef $ const . return $ 60
+  modifyMVar_ bpmRef $ const . return $ 120
   modifyMVar_ signalRef $ const . return $ sig
 
 randByte :: Signal Word8
@@ -52,4 +52,21 @@ tt i mod sig = sig
   & fast i
 
 sig :: Signal Word8
-sig = (nest [embed 60, embed 48])
+sig = nest [embed (5 * x + y) | x <- [1..3] | y <- cycle [0, -12] ]
+  & with seive
+    [ id
+    , (fmap . fmap) (+12)
+    ]
+  & (fmap . fmap) (+50)
+  & (fmap . fmap) (subtract 2)
+  & (fmap . fmap) (subtract 12)
+  & with interleave
+    [ id
+    , fast 16
+    , mempty
+    ]
+  & (tt (1/2) $ with seive
+    [ id
+    , (fmap. fmap) (+12)
+    ]
+    )
