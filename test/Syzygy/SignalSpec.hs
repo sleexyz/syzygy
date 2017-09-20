@@ -10,14 +10,22 @@ import Syzygy.Signal
 
 spec :: Spec
 spec = do
+  describe "splitIntervals" $ do
+    it "works" $ do
+      splitIntervals (0, 1) `shouldBe` [(0, 1)]
+      splitIntervals (0, 2) `shouldBe` [(0, 1), (1, 1)]
+      splitIntervals (0.5, 0.5) `shouldBe` [(0.5, 0.5)]
+      splitIntervals (0.5, 1) `shouldBe` [(0.5, 0.5), (1, 0.5)]
+      splitIntervals (0.5, 2) `shouldBe` [(0.5, 0.5), (1, 1), (2, 0.5)]
+
   describe "Signal" $ do
     describe "embed" $ do
       it "works" $ do
         let pat = embed ()
         signal pat (0, 1) `shouldBe`     [MkEvent (0, 1) ()]
         signal pat (0, 2) `shouldBe`     [MkEvent (0, 1) (), MkEvent (1, 1) ()]
-        signal pat (0.5, 1.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 1) ()]
-        signal pat (0.5, 2.5) `shouldBe` [MkEvent (0, 1) (), MkEvent (1, 1) (), MkEvent (2, 1) ()]
+        signal pat (0.5, 1.5) `shouldBe` [MkEvent (1, 1) ()]
+        signal pat (0.5, 2.5) `shouldBe` [MkEvent (1, 1) (), MkEvent (2, 1) ()]
 
       it "starts of events should be less than query ends" $ QC.property $ \query@(start, dur) ->
         let pat = embed () in
@@ -65,9 +73,7 @@ spec = do
       it "allows us to stack signals" $ do
         let pat = embed ()
         signal (mconcat [(shift 0.25 pat), (shift 0.5 pat)]) (0, 1) `shouldBe`
-          [ MkEvent ((-3/4), 1) ()
-          , MkEvent ((1/4), 1)  ()
-          , MkEvent ((-1/2), 1) ()
+          [ MkEvent ((1/4), 1)  ()
           , MkEvent ((1/2), 1) ()
           ]
 
@@ -98,31 +104,31 @@ spec = do
 
       it "returns appropriate events" $ do
         signal (shift 0 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
-        signal (shift 0.5 pat) (0, 1) `shouldBe` [MkEvent (-1/2, 1) (), MkEvent (1/2, 1) ()]
+        signal (shift 0.5 pat) (0, 1) `shouldBe` [MkEvent (1/2, 1) ()]
         signal (shift 1 pat)   (0, 1) `shouldBe` [MkEvent (0, 1) ()]
 
       it "shifts forwards in time" $ do
-        signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent (-3/4, 1) (), MkEvent (1/4, 1) ()]
+        signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent (1/4, 1) ()]
 
-  --   describe "_filterSignal" $ do
-  --     let
-  --       pat :: Signal String
-  --       pat = fast 4 $ embed "bd"
-  --     it "should return no events when predicate is always false" $ do
-  --       let predicate = const False
-  --       signal (_filterSignal predicate pat) (0, 2) `shouldBe` mempty
+    -- describe "_filterSignal" $ do
+    --   let
+    --     pat :: Signal String
+    --     pat = fast 4 $ embed "bd"
+    --   it "should return no events when predicate is always false" $ do
+    --     let predicate = const False
+    --     signal (_filterSignal predicate pat) (0, 2) `shouldBe` mempty
 
-  --     it "should return all events when predicate is always true" $ do
-  --       let predicate = const True
-  --       signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 2)
+    --   it "should return all events when predicate is always true" $ do
+    --     let predicate = const True
+    --     signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 2)
 
-  --     it "should be able to use a custom predicate" $ do
-  --       let predicate MkEvent{interval= (start, _)} =
-  --             let
-  --               startFract = (snd $ properFraction @ Rational @ Integer start)
-  --             in
-  --               startFract >= 0 && startFract < 0.5
-  --       signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 0.5) <> signal pat (1, 1.5)
+    --   it "should be able to use a custom predicate" $ do
+    --     let predicate MkEvent{interval= (start, _)} =
+    --           let
+    --             startFract = (snd $ properFraction @ Rational @ Integer start)
+    --           in
+    --             startFract >= 0 && startFract < 0.5
+    --     signal (_filterSignal predicate pat) (0, 2) `shouldBe` signal pat (0, 0.5) <> signal pat (1, 1.5)
 
   --   describe "interleave" $ do
   --     let
@@ -196,40 +202,30 @@ spec = do
   --           <> signal (shift (1/3) $ fast 3 b) (4/3, 5/3)
   --           <> signal (shift (2/3) $ fast 3 c) (5/3, 6/3)
 
-  --   -- describe "cat" $ do
-  --     -- let sig = nest [embed "a", embed "b"] & slow 2
+    describe "cat" $ do
+      it "should be silent with 0" $ do
+        signal (cat ([] :: [Signal ()])) (0, 1) `shouldMatchList` signal mempty (0, 1)
 
-  --     -- it "should be silent with 0" $ do
-  --     --   signal (cat ([] :: [Signal ()])) (0, 1) `shouldMatchList` signal mempty (0, 1)
+      it "should no-op with 1" $ do
+        let sig = nest [embed "a", embed "b"] & slow 2
+        signal (cat [sig]) (0, 1) `shouldMatchList` signal sig (0, 1)
 
-  --     -- it "should no-op with 1" $ do
-  --     --   signal (cat [sig]) (0, 1) `shouldMatchList` signal sig (0, 1)
-
-  --     -- it "should layer with 2" $ do
-  --     --   let sig = cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]
-  --       -- signal sig (0, 1) `shouldMatchList` [ MkEvent {interval=(0, 1), payload="a0"}]
-  --       -- signal sig (0, 2) `shouldMatchList`
-  --       --   [ MkEvent {interval=(0, 1), payload="a0"}
-  --       --   , MkEvent {interval=(1, 2), payload="b0"}
-  --       --   ]
-  --       -- signal sig (0, 4) `shouldMatchList`
-  --       --   [ MkEvent {interval=(0, 1), payload="a0"}
-  --       --   , MkEvent {interval=(1, 2), payload="b0"}
-  --       --   , MkEvent {interval=(2, 3), payload="a1"}
-  --       --   , MkEvent {interval=(3, 4), payload="b1"}
-  --       --   ]
-
-  --     -- it "should layer with 4" $ do
-  --     --   sequence $ (print$) <$> signal (cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]) (0,4)
-  --     --   print "foo"
-
-  --       -- signal (cat [sig, sig]) (0,2) `shouldMatchList`
-  --       --   [ MkEvent {interval = (0,1), payload = "a"}
-  --       --   , MkEvent {interval = (1,2), payload = "a"}
-  --       --   ]
-
-  --     -- it "should only have" $ do
-  --     --   print "foo"
-  --     --   sequence_ $ (print$) <$> signal (rep 1 sig) (0, 2)
-  --     --   print "foo"
-  --     --   sequence_ $ (print$) <$> signal (rep 2 sig) (0, 2)
+      it "should alternate between signals with 2" $ do
+        -- TODO: describe test with something that doesn't depend on cat transitively (unlike nest)
+        -- print "new nest"
+        -- sequence $ (print$) <$> signal (slow 2 $ nest [embed "a0", embed "a1"]) (0, 4)
+        -- print "old nest"
+        -- sequence $ (print$) <$> signal (slow 2 $ nest' [embed "a0", embed "a1"]) (0, 4)
+        -- return ()
+        let sig = cat [slow 2 $ nest [embed "a0", embed "a1"], slow 2 $ nest [embed "b0", embed "b1"]]
+        signal sig (0, 1) `shouldMatchList` [ MkEvent {interval=(0, 1), payload="a0"}]
+        signal sig (0, 2) `shouldMatchList`
+          [ MkEvent {interval=(0, 1), payload="a0"}
+          , MkEvent {interval=(1, 1), payload="b0"}
+          ]
+        signal sig (0, 4) `shouldMatchList`
+          [ MkEvent {interval=(0, 1), payload="a0"}
+          , MkEvent {interval=(1, 1), payload="b0"}
+          , MkEvent {interval=(2, 1), payload="a1"}
+          , MkEvent {interval=(3, 1), payload="b1"}
+          ]
