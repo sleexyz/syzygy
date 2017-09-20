@@ -55,11 +55,11 @@ sig :: Signal Word8
 sig = nest [embed (5 * x + y) | x <- [1..3] | y <- cycle [0, -12] ]
   & with seive
     [ id
-    , (fmap . fmap) (+12)
+    , (fmap) (+12)
     ]
-  & (fmap . fmap) (+50)
-  & (fmap . fmap) (subtract 2)
-  & (fmap . fmap) (subtract 12)
+  & (fmap) (+50)
+  & (fmap) (subtract 2)
+  & (fmap) (subtract 12)
   & with interleave
     [ id
     , fast 16
@@ -67,6 +67,6 @@ sig = nest [embed (5 * x + y) | x <- [1..3] | y <- cycle [0, -12] ]
     ]
   & (tt (1/2) $ with seive
     [ id
-    , (fmap. fmap) (+12)
+    , (fmap) (+12)
     ]
     )

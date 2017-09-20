@@ -4,118 +4,131 @@ module Syzygy.Signal where
 import Data.Profunctor (lmap, rmap, Profunctor(..))
 import Data.Function ((&))
 
-type Interval = (Rational, Rational)
+type Interval =
+  ( Rational -- start
+  , Rational -- duration
+  )
 
-data Event a = MkEvent
-  { interval :: (Rational, Rational)
+data Event_ q a = MkEvent
+  { interval :: q
   , payload :: a
   } deriving (Eq, Show, Functor)
+
+type Event = Event_ Interval
 
 mapInterval :: (Interval -> Interval) -> Event a -> Event a
 mapInterval f event = event {interval=f (interval event)}
 
-newtype Signal_ i b = MkSignal { signal :: i -> [b] }
+newtype Signal_ i b = MkSignal { signal :: i -> [Event b] }
   deriving (Functor, Monoid)
 
 instance Profunctor Signal_ where
   lmap (modQuery) sig = MkSignal $ \query -> signal sig $ modQuery query
-  rmap (modEvent) sig = MkSignal $ \query -> fmap modEvent $ signal sig query
+  rmap (modEvent) sig = MkSignal $ \query -> (fmap . fmap) modEvent $ signal sig query
 
-type Signal a = Signal_ Interval (Event a)
+type Signal a = Signal_ Interval a
 
 embed :: a -> Signal a
-embed x = MkSignal $ \(queryStart, queryEnd) -> do
+embed x = MkSignal $ \(queryStart, dur) -> do
   let
     start = (fromIntegral @Integer) . floor $ queryStart
-    end = (fromIntegral @Integer) . ceiling $ queryEnd
+    end = (fromIntegral @Integer) . ceiling $ queryStart + dur
   beat <- [start..end - 1]
-  return MkEvent { interval = (beat, beat + 1), payload = x }
+  return MkEvent { interval = (beat, 1), payload = x }
 
 pruneSignal :: Signal a -> Signal a
-pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, queryEnd) ->
+pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, dur) ->
   let
-    inBounds MkEvent {interval = (start, _)} = start >= queryStart && start < queryEnd
+    inBounds MkEvent {interval = (start, _)} = start >= queryStart && start < queryStart + dur
   in
-    filter inBounds $ sig (queryStart, queryEnd)
+    filter inBounds $ sig (queryStart, dur)
 
 -- | shift forward in time
 shift :: Rational -> Signal a -> Signal a
-shift t MkSignal {signal=originalSignal} = MkSignal {signal}
-  where
-    signal = originalSignal
-      & lmap (\(start, end) -> (start - t, end - t ))
-      & (rmap . fmap) (\ev@MkEvent { interval = (start, end) } -> ev { interval = (start + t, end + t) })
+shift t MkSignal {signal} = MkSignal $ signal
+  & lmap                        (\(start, dur) -> (start - t, dur))
+  & (rmap . fmap . mapInterval) (\(start, dur) -> (start + t, dur))
 
+-- | shift forward in time
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
-fast n MkSignal {signal=originalSignal} = MkSignal {signal}
-  where
-    signal = originalSignal
-      & lmap (\(start, end) -> ( start * n, end * n ))
-      & (rmap . fmap) (\ev@MkEvent { interval = (start, end) } -> ev { interval = (start / n, end / n) })
+fast n MkSignal {signal} = MkSignal $ signal
+  & lmap                        (\(start, dur) -> (start * n, dur * n))
+  & (rmap . fmap . mapInterval) (\(start, dur) -> (start / n, dur/n))
 
 slow :: Rational -> Signal a -> Signal a
 slow n = fast (1/n)
 
--- | filter a signal by a predicate on events
-_filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
-_filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
+-- -- | filter a signal by a predicate on events
+-- _filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
+-- _filterSignal predicate sig = MkSignal $ \query -> filter predicate $ signal sig query
 
-_filterByIndexSieve :: Rational -> Rational -> Signal a -> Signal a
-_filterByIndexSieve n i = _filterSignal (makeSieve i)
-  where
-    makeSieve :: Rational -> Event a -> Bool
-    makeSieve i MkEvent { interval = (start, _) } =
-      let
-        startFract = snd . properFraction @ Rational @ Integer $ start
-      in
-        startFract >= (i/ n) && startFract < ((i + 1) / n)
+-- _filterByIndexSieve :: Rational -> Rational -> Signal a -> Signal a
+-- _filterByIndexSieve n i = _filterSignal (makeSieve i)
+--   where
+--     makeSieve :: Rational -> Event a -> Bool
+--     makeSieve i MkEvent { interval = (start, _) } =
+--       let
+--         startFract = snd . properFraction @ Rational @ Integer $ start
+--       in
+--         startFract >= (i/ n) && startFract < ((i + 1) / n)
 
-fract :: Rational -> Rational
-fract x = snd . properFraction @ Rational @ Integer $ x
+-- fract :: Rational -> Rational
+-- fract x = snd . properFraction @ Rational @ Integer $ x
 
-floor_ :: Rational -> Rational
-floor_ = fromIntegral . floor
+-- floor_ :: Rational -> Rational
+-- floor_ = fromIntegral . floor
 
-modR :: Rational -> Rational -> Rational
-modR x y = fract (x/y) * y
+-- mod_ :: Rational -> Rational -> Rational
+-- mod_ x y = (snd $ properFraction @ Rational @ Integer $ (x/y)) * y
 
-cat :: [Signal a] -> Signal a
-cat sigs = mconcat $ do
-  let n = fromIntegral $ length sigs
-  (sig, i) <- zip sigs [0..]
-  return $ MkSignal $ \(queryStart, queryEnd) -> do
-    let f x = floor_ (x/n) + fract x -- TODO: life would be much easier if I could carry over this mapped value, in addition
-    let g x = x + i
-    let (qs, qe) = (f queryStart, f queryEnd)
-    event@MkEvent{interval=(start, _)} <- signal sig (qs, qe)
-    event <- event
-      & mapInterval (\(s, e) -> (g s, g e))
-      & return
-    return event
+-- makeSieve' :: Rational -> Rational -> Event a -> Bool
+-- makeSieve' n i MkEvent { interval = (start, _) } =
+--   let
+--     moddedStart = start `mod_` n
+--   in
+--     moddedStart >= i && moddedStart < (i + 1)
+
+-- cat :: [Signal a] -> Signal a
+-- cat sigs = pruneSignal $ mconcat $ do
+--   let n = fromIntegral $ length sigs
+--   (sig, i) <- zip sigs [0..]
+--   return $ MkSignal $ \(queryStart, queryEnd) -> do
+--     -- let f x = floor_ ((x - i)/n) + (x - i) `mod_` n
+--     let f x = x/n
+--     let g x = (x) - floor_ (x)
+--     let (qs, qe) = (f queryStart, f queryEnd)
+--     event@MkEvent{interval=(start, _)} <- signal sig (qs, qe)
+--     event
+--       & mapInterval (\(s, e) -> (g s, g e))
+--       & return
+      -- & filter (makeSieve' n i)
 
 
--- | switch between signals within a single cycle
--- TODO: make non lossy
+-- -- | switch between signals within a single cycle
+-- -- TODO: make non lossy
 seive :: [Signal a] -> Signal a
-seive = makeListCombinator $ \n i sig -> sig
-  & _filterByIndexSieve n i
+seive = undefined
+-- seive = makeListCombinator $ \n i sig -> sig
+--   & _filterByIndexSieve n i
 
--- | interleave signals within a single cycle
+-- -- | interleave signals within a single cycle
 interleave :: [Signal a] -> Signal a
-interleave = makeListCombinator $ \n i sig -> sig
-  & shift (i/n)
-  & _filterByIndexSieve n i
+interleave = undefined
+-- interleave = makeListCombinator $ \n i sig -> sig
+--   & shift (i/n)
+--   & _filterByIndexSieve n i
 
--- | interleaves scaled signals within a single cycle
+-- -- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a
-nest = makeListCombinator $ \n i sig -> sig
-  & fast n
-  & shift (i/n)
-  & _filterByIndexSieve n i
+nest = undefined
+-- nest = makeListCombinator $ \n i sig -> sig
+--   & fast n
+--   & shift (i/n)
+--   & _filterByIndexSieve n i
 
-makeListCombinator :: (Rational -> Rational -> Signal a -> Signal a) -> [Signal a] -> Signal a
-makeListCombinator handler sigs = mconcat $ zipWith (handler n) [0..] sigs
-  where
-    n :: Rational
-    n = fromIntegral $ length sigs
+-- makeListCombinator :: (Rational -> Rational -> Signal a -> Signal a) -> [Signal a] -> Signal a
+-- makeListCombinator handler sigs = mconcat $ zipWith (handler n) [0..] sigs
+--   where
+--     n :: Rational
+--     n = fromIntegral $ length sigs
