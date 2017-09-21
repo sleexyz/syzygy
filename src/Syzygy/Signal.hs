@@ -105,35 +105,21 @@ fast n sig = sig
 slow :: Rational -> Signal a -> Signal a
 slow n = fast (1/n)
 
--- | filter a signal by a predicate on events
-_filterSignal :: (Event a -> Bool) -> Signal a -> Signal a
-_filterSignal predicate MkSignal {signal} = MkSignal $ signal
-  & rmap (filter predicate)
-
-_filterByIndexSieve :: Rational -> Rational -> Signal a -> Signal a
-_filterByIndexSieve n i = _filterSignal (sieve i)
-  where
-    sieve :: Rational -> Event a -> Bool
-    sieve i MkEvent { interval = (start, _) } =
-      let
-        startFract = snd . properFraction @ Rational @ Integer $ start
-      in
-        startFract >= (i/ n) && startFract < ((i + 1) / n)
-
+-- | Alternate between signals after a cycle
 cat :: [Signal a] -> Signal a
 cat sigs = mconcat $ do
   let n = fromIntegral $ length sigs
   (sig, i) <- zip sigs [0..]
-  return $ MkSignal $ splitQueries $ \(queryStart, dur) -> do
-    let moddedStart = floor_ ((queryStart - i)/n) + (queryStart - i) `mod_` n
-    let offset = queryStart - moddedStart
+  return $ MkSignal $ (lmap . first) (subtract i) $ splitQueries $ \(queryStart, dur) -> do
+    let moddedStart = floor_ (queryStart/n) + (queryStart) `mod_` n
+    let offset = queryStart - moddedStart + i
     event <- signal sig (moddedStart, dur)
     event
       & (mapInterval . first) (+offset)
       & return
       & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in  pos >= i && pos < (i + 1))
 
--- -- | interleave signals within a single cycle
+-- | interleave signals within a single cycle
 interleave :: [Signal a] -> Signal a
 interleave sigs = sigs
   & fmap (slow n)
@@ -148,24 +134,4 @@ nest sigs = sigs
   & cat
   & fast n
   where
-    n = fromIntegral $ length sigs
-
--- | old nest...
--- nest' :: [Signal a] -> Signal a
--- nest' = makeListCombinator $ \n i sig -> sig
---   & fast n
---   & shift (i/n)
---   & _filterByIndexSieve n i
-
--- | switch between signals within a single cycle
--- lossy
-switch :: [Signal a] -> Signal a
-switch = makeListCombinator $ \n i sig -> sig
-  & shift (i/n)
-  & _filterByIndexSieve n i
-
-makeListCombinator :: (Rational -> Rational -> Signal a -> Signal a) -> [Signal a] -> Signal a
-makeListCombinator handler sigs = mconcat $ zipWith (handler n) [0..] sigs
-  where
-    n :: Rational
     n = fromIntegral $ length sigs
