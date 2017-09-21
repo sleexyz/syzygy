@@ -119,15 +119,6 @@ cat sigs = mconcat $ do
       & return
       & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in  pos >= i && pos < (i + 1))
 
--- | interleave signals within a single cycle
-interleave :: [Signal a] -> Signal a
-interleave sigs = sigs
-  & fmap (slow n)
-  & cat
-  & fast n
-  where
-    n = fromIntegral $ length sigs
-
 -- | interleaves scaled signals within a single cycle
 nest :: [Signal a] -> Signal a
 nest sigs = sigs
@@ -135,3 +126,12 @@ nest sigs = sigs
   & fast n
   where
     n = fromIntegral $ length sigs
+
+
+switch :: [Signal a] -> Signal a
+switch sigs = mconcat $ do
+  let n = fromIntegral $ length sigs
+  (sig, i) <- zip sigs [0..]
+  return $ MkSignal $ \query-> do
+    signal sig query
+      & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in  pos >= i && pos < (i + 1))

@@ -32,7 +32,7 @@ setup = do
 main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
-  modifyMVar_ bpmRef $ const . return $ 120
+  modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ sig
 
 randByte :: Signal Word8
@@ -52,7 +52,11 @@ tt i mod sig = sig
   & fast i
 
 sig :: Signal Word8
-sig = nest [embed (5 * x + y) | x <- [1..3] | y <- cycle [0, -12] ]
-  & (fmap) (+50)
-  & (fmap) (subtract 2)
-  & (fmap) (subtract 12)
+sig = switch [embed 20, embed 32, embed 39, embed 42]
+  & fast 4
+  & with switch [id, id, id, id]
+  & with mconcat [id, fmap (subtract 24)]
+  -- & fmap (+12)
+  -- & fmap (+2)
+  &  12 `tt` with switch [id, fmap (+12)]
+  & fmap (+20)

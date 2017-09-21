@@ -110,42 +110,6 @@ spec = do
       it "shifts forwards in time" $ do
         signal (shift 0.25 pat) (0, 1) `shouldBe` [MkEvent (1/4, 1) ()]
 
-    describe "interleave" $ do
-      let
-        a, b, c :: Signal String
-        a = fast 2 $ embed "a"
-        b = fast 2 $ embed "b"
-        c = fast 2 $ embed "c"
-      it "should noop for 1" $ do
-        signal (interleave [a]) (0, 1) `shouldBe` signal a (0, 1)
-
-      describe "for one cycle" $ do
-        it "should play patterns, shifted in order" $ do
-          signal (interleave [a, b]) (0, 1) `shouldBe` mempty
-            <> signal (shift (0/2) a) (0, 0.5)
-            <> signal (shift (1/2) b) (0.5, 0.5)
-
-          signal (interleave [a, b, c]) (0, 1) `shouldBe` mempty
-            <> signal (shift (0/3) a) (0, 1/3)
-            <> signal (shift (1/3) b) (1/3, 1/3)
-            <> signal (shift (2/3) c) (2/3, 1/3)
-
-      describe "for multiple cycles" $ do
-        it "should play patterns, shifted in order" $ do
-          signal (interleave [a, b]) (0, 2) `shouldMatchList` mempty
-            <> signal (shift (0/2) a) ((0/2),(1/2))
-            <> signal (shift (1/2) b) ((1/2),(1/2))
-            <> signal (shift (0/2) a) ((2/2),(1/2))
-            <> signal (shift (1/2) b) ((3/2),(1/2))
-
-          signal (interleave [a, b, c]) (0, 2) `shouldMatchList` mempty
-            <> signal (shift (0/3) a) (0/3, 1/3)
-            <> signal (shift (1/3) b) (1/3, 1/3)
-            <> signal (shift (2/3) c) (2/3, 1/3)
-            <> signal (shift (3/3) a) (3/3, 1/3)
-            <> signal (shift (4/3) b) (4/3, 1/3)
-            <> signal (shift (5/3) c) (5/3, 1/3)
-
     describe "nest" $ do
       let
         a, b, c :: Signal String
@@ -221,3 +185,12 @@ spec = do
           , MkEvent {interval=(2, 1), payload="a1"}
           , MkEvent {interval=(3, 1), payload="b1"}
           ]
+
+      it "should alternate between signals and not drop events" $ do
+        let sigA = cat [embed "a0", embed "a1"] & fast 2
+        let sigB = cat [embed "b0", embed "b1"] & fast 2
+        let sigC = cat [embed "c0", embed "c1"] & fast 2
+        let sig = cat [sigA, sigB, sigC]
+
+        sequence $ (print$) <$> signal sig (0, 6)
+        return ()

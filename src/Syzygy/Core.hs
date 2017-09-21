@@ -33,7 +33,7 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
     clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral ppb), x))
-    let events = signal (pruneSignal sig) (clockVal, clockVal + (1/fromIntegral ppb))
+    let events = signal (pruneSignal sig) (clockVal, (1/fromIntegral ppb))
     sendEvents clockVal events
     _delay bpm ppb
 
