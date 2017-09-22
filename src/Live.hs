@@ -1,4 +1,5 @@
 {-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE RebindableSyntax #-}
 module Live where
 
 import Control.Concurrent
@@ -7,6 +8,8 @@ import Data.Function ((&))
 import qualified Data.Vector.Unboxed as V
 import System.Random.MWC (uniformVector, create)
 import System.IO.Unsafe (unsafePerformIO)
+import Prelude
+import Data.String
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -24,7 +27,8 @@ setup = do
   signalRef <- newMVar mempty
   clockRef <- newMVar 0
   bpmRef <- newMVar 120
-  let midiPortName = "UM-ONE MIDI 1"
+  -- let midiPortName = "UM-ONE MIDI 1"
+  let midiPortName = "VirMIDI 2-0"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
   _ <- forkIO $ runBackend backend config
   return config
@@ -33,7 +37,7 @@ main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
   modifyMVar_ bpmRef $ const . return $ 160
-  modifyMVar_ signalRef $ const . return $ sig
+  modifyMVar_ signalRef $ const . return $ sigMod mempty
 
 randByte :: Signal Word8
 randByte = MkSignal $ \query@(queryStart, _) ->
@@ -45,18 +49,21 @@ randByte = MkSignal $ \query@(queryStart, _) ->
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
 
+infixl 4 `tt`
+
 tt :: Rational -> (Signal a -> Signal a) -> Signal a -> Signal a
 tt i mod sig = sig
   & slow i
   & mod
   & fast i
 
-sig :: Signal Word8
-sig = switch [embed 20, embed 32, embed 39, embed 42]
-  & fast 4
-  & with switch [id, id, id, id]
-  & with mconcat [id, fmap (subtract 24)]
-  -- & fmap (+12)
-  -- & fmap (+2)
-  &  12 `tt` with switch [id, fmap (+12)]
-  & fmap (+20)
+fracture :: Int -> (Signal a -> Signal a) -> Signal a -> Signal a
+fracture n f = foldr (flip (.)) id ([tt (1/(2^i)) f | i <- [0..n]])
+
+overlay :: (Signal a -> Signal a) -> (Signal a -> Signal a)
+overlay f = with mconcat [id, f]
+
+sigMod :: Signal Word8 -> Signal Word8
+sigMod = let (>>) = (flip (.)) in do
+  const (embed 20)
+  with nest [ fmap (+x)| x <- [0, 12, 19, 22]]

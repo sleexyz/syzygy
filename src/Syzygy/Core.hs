@@ -27,7 +27,7 @@ _delay bpm ppb = threadDelay ((10^6 * 60) `div` bpm `div` ppb)
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
-  let ppb = 24 -- 24 pulses per beat
+  let ppb = 1 -- 24 pulses per beat
   MkEnv{sendEvents} <- makeEnv config
   forever $ do
     bpm <- readMVar bpmRef

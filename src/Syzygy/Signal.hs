@@ -64,7 +64,7 @@ splitQueries sig =  \_rawQuery -> do
 repeatEvery :: Rational -> Signal a -> Signal a
 repeatEvery n sig = MkSignal $ splitQueries $ \(queryStart, dur) -> do
   let moddedStart = queryStart `mod_` n
-  let offset = queryStart - moddedStart `mod_` n
+  let offset = queryStart - moddedStart
   signal sig (moddedStart, dur)
     & (fmap . mapInterval . first) (+offset)
 
@@ -74,9 +74,9 @@ impulse = MkSignal $ splitQueries $ \(queryStart, _) -> if
   | otherwise -> []
 
 diracComb :: Signal ()
-diracComb = impulse
-  & repeatEvery 1
-  & (mapInterval . second) (const 1)
+diracComb = MkSignal $ splitQueries $ \(queryStart, _) -> if
+  | queryStart `mod_` 1 == 0 -> [MkEvent {interval=(queryStart, 1), payload=()}]
+  | otherwise -> []
 
 embed :: a -> Signal a
 embed x = diracComb
@@ -134,4 +134,4 @@ switch sigs = mconcat $ do
   (sig, i) <- zip sigs [0..]
   return $ MkSignal $ \query-> do
     signal sig query
-      & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in  pos >= i && pos < (i + 1))
+      & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in pos >= i && pos < (i + 1))
