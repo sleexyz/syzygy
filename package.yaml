@@ -32,6 +32,8 @@ dependencies:
   - alsa-core
   - alsa-seq
   - foreign-store
+  - vector
+  - mwc-random
 
 library:
   source-dirs: src
