@@ -82,7 +82,7 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
         extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
         extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
             [ noteOn address queue (getDelay eventStart) payload
-            -- , noteOff address queue (getDelay (eventStart + dur)) payload
+            , noteOff address queue (getDelay (eventStart + dur)) payload
             ]
           where
             getDelay :: Rational -> Integer
