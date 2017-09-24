@@ -1,7 +1,6 @@
 
 module Syzygy.SignalSpec where
 
-import Data.Function ((&))
 import Data.Monoid ((<>))
 import Test.Hspec
 import qualified Test.QuickCheck as QC
@@ -185,12 +184,3 @@ spec = do
           , MkEvent {interval=(2, 1), payload="a1"}
           , MkEvent {interval=(3, 1), payload="b1"}
           ]
-
-      it "should alternate between signals and not drop events" $ do
-        let sigA = cat [embed "a0", embed "a1"] & fast 2
-        let sigB = cat [embed "b0", embed "b1"] & fast 2
-        let sigC = cat [embed "c0", embed "c1"] & fast 2
-        let sig = cat [sigA, sigB, sigC]
-
-        sequence $ (print$) <$> signal sig (0, 6)
-        return ()

@@ -1,11 +1,9 @@
 {-# LANGUAGE MultiWayIf #-}
 module Syzygy.Signal where
 
--- TODO: remove profunctor dependency, use mapQuery, mapEvents instead
-import Data.Profunctor (lmap, rmap, Profunctor(..))
 import Data.Function ((&))
+import Data.Profunctor (lmap)
 -- TODO: use mapStart/mapDuration instead of first/second
-import Control.Arrow (first, second)
 
 type Interval =
   ( Rational -- start
@@ -19,22 +17,27 @@ data Event_ q a = MkEvent
 
 type Event a = Event_ Interval a
 
-class IntervalMappable t where
+class HasInterval t where
   mapInterval :: (Interval -> Interval) -> t a -> t a
 
-instance IntervalMappable (Event_ e) where
+instance HasInterval (Event_ e) where
   mapInterval f event = event {interval=f (interval event)}
 
-instance IntervalMappable (Signal_ i) where
+instance HasInterval (Signal_ i) where
   mapInterval f sig = MkSignal $ signal sig
     & (fmap . fmap . mapInterval) f
+
+mapStart :: (Rational -> Rational) -> Interval -> Interval
+mapStart f (s, d) = (f s, d)
+
+mapDur :: (Rational -> Rational) -> Interval -> Interval
+mapDur f (s, d) = (s, f d)
 
 newtype Signal_ i b = MkSignal { signal :: i -> [Event b] }
   deriving (Functor, Monoid)
 
-instance Profunctor Signal_ where
-  lmap (modQuery) sig = MkSignal $ \query -> signal sig $ modQuery query
-  rmap (modEvent) sig = MkSignal $ \query -> (fmap . fmap) modEvent $ signal sig query
+mapQuery :: (Interval -> Interval) -> Signal a -> Signal a
+mapQuery f sig = MkSignal $ \query -> signal sig $ f query
 
 type Signal a = Signal_ Interval a
 
@@ -66,7 +69,7 @@ repeatEvery n sig = MkSignal $ splitQueries $ \(queryStart, dur) -> do
   let moddedStart = queryStart `mod_` n
   let offset = queryStart - moddedStart
   signal sig (moddedStart, dur)
-    & (fmap . mapInterval . first) (+offset)
+    & (fmap . mapInterval . mapStart) (+offset)
 
 impulse :: Signal ()
 impulse = MkSignal $ splitQueries $ \(queryStart, _) -> if
@@ -92,14 +95,14 @@ pruneSignal (MkSignal sig) = MkSignal $ \(queryStart, dur) ->
 -- | shift forward in time
 shift :: Rational -> Signal a -> Signal a
 shift t sig = sig
-  & lmap        (\(start, dur) -> (start - t, dur))
+  & mapQuery (\(start, dur) -> (start - t, dur))
   & mapInterval (\(start, dur) -> (start + t, dur))
 
 -- | shift forward in time
 -- | scale faster in time
 fast :: Rational -> Signal a -> Signal a
 fast n sig = sig
-  & lmap        (\(start, dur) -> (start * n, dur * n))
+  & mapQuery        (\(start, dur) -> (start * n, dur * n))
   & mapInterval (\(start, dur) -> (start / n, dur/n))
 
 slow :: Rational -> Signal a -> Signal a
@@ -110,12 +113,12 @@ cat :: [Signal a] -> Signal a
 cat sigs = mconcat $ do
   let n = fromIntegral $ length sigs
   (sig, i) <- zip sigs [0..]
-  return $ MkSignal $ (lmap . first) (subtract i) $ splitQueries $ \(queryStart, dur) -> do
+  return $ MkSignal $ (lmap . mapStart) (subtract i) $ splitQueries $ \(queryStart, dur) -> do
     let moddedStart = floor_ (queryStart/n) + (queryStart) `mod_` n
     let offset = queryStart - moddedStart + i
     event <- signal sig (moddedStart, dur)
     event
-      & (mapInterval . first) (+offset)
+      & (mapInterval . mapStart) (+offset)
       & return
       & filter (\MkEvent {interval=(s, _)} -> let pos = s `mod_` n in  pos >= i && pos < (i + 1))
 

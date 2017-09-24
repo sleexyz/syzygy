@@ -31,8 +31,6 @@ library
     , alsa-core
     , alsa-seq
     , foreign-store
-    , vector
-    , mwc-random
   exposed-modules:
       Live
       Syzygy.Core
@@ -58,8 +56,6 @@ executable syzygy-live
     , alsa-core
     , alsa-seq
     , foreign-store
-    , vector
-    , mwc-random
   other-modules:
       Live
       Syzygy.Core
@@ -74,6 +70,7 @@ test-suite syzygy-test
   hs-source-dirs:
       test
   default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
+  ghc-options: -threaded -rtsopts -with-rtsopts=-N -Wall -Werror -fno-warn-type-defaults -fno-warn-name-shadowing -Wno-unused-do-bind
   build-depends:
       base >= 4.7 && < 5
     , profunctors
@@ -84,8 +81,6 @@ test-suite syzygy-test
     , alsa-core
     , alsa-seq
     , foreign-store
-    , vector
-    , mwc-random
     , syzygy
     , hspec
     , hspec-expectations

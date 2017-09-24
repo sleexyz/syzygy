@@ -72,7 +72,7 @@ spec = do
         withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
           withMockSendEvent $ \_ events -> events `shouldBe` [ MkEvent {interval=(0, 1), payload="hello"} ]
           sequence_ $ replicate 23 $ withMockSendEvent $ \_ events -> events `shouldBe` []
-          withMockSendEvent $ \_ events -> events `shouldBe` [ MkEvent {interval=(1, 2), payload="hello"} ]
+          withMockSendEvent $ \_ events -> events `shouldBe` [ MkEvent {interval=(1, 1), payload="hello"} ]
 
     describe "timing" $ do
       let
