@@ -3,27 +3,27 @@ module Syzygy.Signal where
 
 import Data.Function ((&))
 import Data.Profunctor (lmap)
--- TODO: use mapStart/mapDuration instead of first/second
 
 type Interval =
   ( Rational -- start
   , Rational -- duration
   )
 
-data Event_ q a = MkEvent
+data Event a = MkEvent
   { interval :: Interval
   , payload :: a
   } deriving (Eq, Show, Functor)
 
-type Event a = Event_ Interval a
+newtype Signal b = MkSignal { signal :: Interval -> [Event b] }
+  deriving (Functor, Monoid)
 
 class HasInterval t where
-  mapInterval :: (Interval -> Interval) -> t a -> t a
+  mapInterval :: (Interval -> Interval) -> t -> t
 
-instance HasInterval (Event_ e) where
+instance HasInterval (Event a) where
   mapInterval f event = event {interval=f (interval event)}
 
-instance HasInterval (Signal_ i) where
+instance HasInterval (Signal a) where
   mapInterval f sig = MkSignal $ signal sig
     & (fmap . fmap . mapInterval) f
 
@@ -33,13 +33,8 @@ mapStart f (s, d) = (f s, d)
 mapDur :: (Rational -> Rational) -> Interval -> Interval
 mapDur f (s, d) = (s, f d)
 
-newtype Signal_ i b = MkSignal { signal :: i -> [Event b] }
-  deriving (Functor, Monoid)
-
 mapQuery :: (Interval -> Interval) -> Signal a -> Signal a
 mapQuery f sig = MkSignal $ \query -> signal sig $ f query
-
-type Signal a = Signal_ Interval a
 
 floor_ :: Rational -> Rational
 floor_ = fromIntegral . floor
@@ -63,7 +58,6 @@ splitQueries sig =  \_rawQuery -> do
   query <- splitIntervals _rawQuery
   sig query
 
--- lossy
 repeatEvery :: Rational -> Signal a -> Signal a
 repeatEvery n sig = MkSignal $ splitQueries $ \(queryStart, dur) -> do
   let moddedStart = queryStart `mod_` n
@@ -129,7 +123,6 @@ nest sigs = sigs
   & fast n
   where
     n = fromIntegral $ length sigs
-
 
 switch :: [Signal a] -> Signal a
 switch sigs = mconcat $ do
