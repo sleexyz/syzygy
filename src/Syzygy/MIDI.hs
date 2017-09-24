@@ -14,6 +14,7 @@ import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
 import qualified Sound.ALSA.Sequencer.Port.Info as PortInfo
 import qualified Sound.ALSA.Sequencer.Queue as Queue
+import qualified System.Clock as Clock
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -57,7 +58,7 @@ stamp :: Queue.T -> Integer -> MIDIEvent.T -> MIDIEvent.T
 stamp queue nanosecs event = event
   {
     MIDIEvent.queue = queue
-  , MIDIEvent.time = ALSATime.consRel $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
+  , MIDIEvent.time = ALSATime.consAbs $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
   }
 
 makeNoteOnData :: Word8 -> MIDIEvent.Data
@@ -78,24 +79,31 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
     sendEvents :: Rational -> [Event Word8] -> IO ()
     sendEvents clockVal events = do
       bpm <- readMVar bpmRef
+      now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
       let
         extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
         extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
-            [ noteOn address queue (getDelay eventStart) payload
-            , noteOff address queue (getDelay (eventStart + dur)) payload
+            [ noteOn address queue (getTimeOf eventStart) payload
+            , noteOff address queue (getTimeOf (eventStart + dur)) payload
             ]
           where
-            getDelay :: Rational -> Integer
-            getDelay val = floor $ (10^9 * 60) * (val - clockVal) / fromIntegral bpm
+            latency :: Integer
+            latency = 20 * 10^3 -- 20 milliseconds
+            getTimeOf :: Rational -> Integer
+            getTimeOf val = latency + now + floor ((10^9 * 60) * (val - clockVal) / fromIntegral bpm)
 
         notes :: [MIDIEvent.T]
         notes =  events >>= extractMIDIEvents
 
-      _ <- traverse (MIDIEvent.output h)notes
+      _ <- traverse (MIDIEvent.output h) notes
       _ <- MIDIEvent.drainOutput h
       return ()
 
+  -- set up queue
   _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
+  now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
+  -- continue
   continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)

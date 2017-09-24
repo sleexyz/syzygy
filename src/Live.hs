@@ -26,7 +26,7 @@ setup = do
 main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
-  modifyMVar_ bpmRef $ const . return $ 120
+  modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ sigMod mempty
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
@@ -46,23 +46,37 @@ fracture n f = foldr (flip (.)) id ([tt (1/(2^i)) f | i <- [0..n]])
 overlay :: (Signal a -> Signal a) -> (Signal a -> Signal a)
 overlay f = with mconcat [id, f]
 
+filterSig :: (a -> Bool) -> Signal a -> Signal a
+filterSig pred sig = MkSignal $ \query -> signal sig query
+  & filter (\MkEvent{payload}-> pred payload)
+
+lpf :: Word8 -> Signal Word8 -> Signal Word8
+lpf i = filterSig $ (<i)
+
+hpf :: Word8 -> Signal Word8 -> Signal Word8
+hpf i = filterSig $ (>i)
+
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
-  const (embed 24)
-  with nest [ fmap (+x)| x <- [0, 12, 19, 0]]
-  tt (1/2) $ with switch [fmap (+2) , id]
-  fast 1
-  tt (1/4) $ with switch [fmap (+29), fmap (+24)]
-  overlay $ do
-    tt 4 $ with switch
-      [ fmap (+0)
-      , fmap (+24)
-      , fmap (subtract 7)
-      ]
-    tt 8 $ with switch
-      [ fmap (+0)
-      , fmap (subtract 7)
-      , fmap (subtract 24)
-      ]
-    overlay $ shift (0.5)
-  tt (1/8) $ with switch [id, (fmap (subtract 7))]
+  const (embed 0)
+  with switch [ fmap (+(x)) | x <- [0, 12, 19, 0] >>= replicate 1]
+  fast 4
+  -- with switch [id, slow 2]
+  -- slow (1.5)
+  -- tt (1/2) $ with switch [fmap (+2) , id]
+  -- tt (1/4) $ with switch [fmap (+29), fmap (+24)]
+  -- tt (1/8) $ with switch [id, (fmap (subtract 7))]
+  -- tt (1/16) $ with switch [id, (fmap (+5))]
+  tt 8 $ with switch
+    [ fmap (+0)
+    , fmap (+24)
+    -- , fmap (subtract 7)
+    ]
+  -- tt 8 $ with switch
+  --   [ fmap (+24)
+  --   , fmap (subtract 24)
+  --   ]
+  -- overlay $ do
+  --   tt 4 $ with switch [id, const (mempty)]
+  --   shift 0.25
+  -- tt 4 $ with switch [id, const (mempty)]
