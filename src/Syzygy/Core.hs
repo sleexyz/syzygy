@@ -26,7 +26,7 @@ newtype Env a = MkEnv
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
-  let ppb = 1 -- 24 pulses per beat
+  let ppb = 24 -- 24 pulses per beat
   MkEnv{sendEvents} <- makeEnv config
   lastTimeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do

@@ -26,7 +26,7 @@ setup = do
 main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
-  modifyMVar_ bpmRef $ const . return $ 120
+  modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ sigMod mempty
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
@@ -61,9 +61,7 @@ staccato sig = sig & (mapInterval . mapDur) (/4)
 
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
-  staccato
   const (embed 60)
-  with switch [ fmap (+(x + y)) | x <- [0, 3, 7, 10, 15, 17, 22, 24, 26, 27] >>= replicate 1 | y <- cycle [0, -24, 12]]
-  fast 16
-  tt (1/2) $ with switch [id, fmap (subtract 12)]
-  tt (1/8) $ with switch [id, fmap (subtract 2)]
+  with switch [ fmap (+(x)) | x <- [-0, 3, 7, 10, 14, 15, 17, 26, 27, 10, 14, 7, 3]]
+  fast 8
+  tt (1/4)  $ with switch [fmap (subtract x) | x <- [0, 5, 2, 7]]
