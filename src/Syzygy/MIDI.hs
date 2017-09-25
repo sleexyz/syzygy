@@ -65,7 +65,7 @@ makeNoteOnData :: Word8 -> MIDIEvent.Data
 makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
 
 makeNoteOffData :: Word8 -> MIDIEvent.Data
-makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
+makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
 
 noteOn :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
 noteOn address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOnData pitch)
@@ -76,10 +76,9 @@ noteOff address queue delay pitch = stamp queue delay $ MIDIEvent.simple address
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
 makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
   let
-    sendEvents :: Rational -> [Event Word8] -> IO ()
-    sendEvents clockVal events = do
+    sendEvents :: Rational -> Integer -> [Event Word8] -> IO ()
+    sendEvents clockVal lastTime events = do
       bpm <- readMVar bpmRef
-      now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
       let
         extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
         extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
@@ -88,13 +87,13 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
             ]
           where
             latency :: Integer
-            latency = 20 * 10^3 -- 20 milliseconds
+            latency = 0
+
             getTimeOf :: Rational -> Integer
-            getTimeOf val = latency + now + floor ((10^9 * 60) * (val - clockVal) / fromIntegral bpm)
+            getTimeOf val = latency + lastTime + floor ((10^9 * 60) * (val - clockVal) / fromIntegral bpm)
 
         notes :: [MIDIEvent.T]
         notes =  events >>= extractMIDIEvents
-
       _ <- traverse (MIDIEvent.output h) notes
       _ <- MIDIEvent.drainOutput h
       return ()
@@ -109,7 +108,7 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
 makeMIDIEnv config = do
   (envRef :: MVar (Maybe (Env Word8))) <- newEmptyMVar
-  void $ forkIO $ do
+  void $ forkOS $ do
     makeMIDIEnv' config $ \env -> do
       putMVar envRef $ Just env
       forever (threadDelay 1000000000)

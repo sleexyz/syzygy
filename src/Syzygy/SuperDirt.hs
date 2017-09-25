@@ -44,8 +44,8 @@ makeSuperDirtEnv :: SuperDirtConfig -> IO (Env BS.ByteString)
 makeSuperDirtEnv MkSuperDirtConfig{superDirtPortNumber, bpmRef} = do
   superDirtSocket <- makeLocalUDPConnection superDirtPortNumber
   let
-    sendEvents :: Rational -> [ Event BS.ByteString ] -> IO ()
-    sendEvents clockVal events = do
+    sendEvents :: Rational -> Integer -> [ Event BS.ByteString ] -> IO ()
+    sendEvents clockVal _ events = do
       now <- Time.getCurrentTime
       bpm <- readMVar bpmRef
       let oscEvents = [toAbsoluteTime now clockVal bpm event | event <- events]

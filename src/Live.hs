@@ -17,8 +17,8 @@ setup = do
   signalRef <- newMVar mempty
   clockRef <- newMVar 0
   bpmRef <- newMVar 120
-  -- let midiPortName = "UM-ONE MIDI 1"
-  let midiPortName = "VirMIDI 2-0"
+  let midiPortName = "UM-ONE MIDI 1"
+  -- let midiPortName = "VirMIDI 2-0"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
   _ <- forkIO $ runBackend backend config
   return config
@@ -26,7 +26,7 @@ setup = do
 main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
-  modifyMVar_ bpmRef $ const . return $ 160
+  modifyMVar_ bpmRef $ const . return $ 120
   modifyMVar_ signalRef $ const . return $ sigMod mempty
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
@@ -56,27 +56,14 @@ lpf i = filterSig $ (<i)
 hpf :: Word8 -> Signal Word8 -> Signal Word8
 hpf i = filterSig $ (>i)
 
+staccato :: Signal a -> Signal a
+staccato sig = sig & (mapInterval . mapDur) (/4)
+
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
-  const (embed 0)
-  with switch [ fmap (+(x)) | x <- [0, 12, 19, 0] >>= replicate 1]
-  fast 4
-  -- with switch [id, slow 2]
-  -- slow (1.5)
-  -- tt (1/2) $ with switch [fmap (+2) , id]
-  -- tt (1/4) $ with switch [fmap (+29), fmap (+24)]
-  -- tt (1/8) $ with switch [id, (fmap (subtract 7))]
-  -- tt (1/16) $ with switch [id, (fmap (+5))]
-  tt 8 $ with switch
-    [ fmap (+0)
-    , fmap (+24)
-    -- , fmap (subtract 7)
-    ]
-  -- tt 8 $ with switch
-  --   [ fmap (+24)
-  --   , fmap (subtract 24)
-  --   ]
-  -- overlay $ do
-  --   tt 4 $ with switch [id, const (mempty)]
-  --   shift 0.25
-  -- tt 4 $ with switch [id, const (mempty)]
+  staccato
+  const (embed 60)
+  with switch [ fmap (+(x + y)) | x <- [0, 3, 7, 10, 15, 17, 22, 24, 26, 27] >>= replicate 1 | y <- cycle [0, -24, 12]]
+  fast 16
+  tt (1/2) $ with switch [id, fmap (subtract 12)]
+  tt (1/8) $ with switch [id, fmap (subtract 2)]

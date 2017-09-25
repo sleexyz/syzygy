@@ -20,7 +20,7 @@ data Backend config a = MkBackend
   }
 
 newtype Env a = MkEnv
-  { sendEvents :: Rational -> [Event a] -> IO ()
+  { sendEvents :: Rational -> Integer -> [Event a] -> IO ()
   }
 
 runBackend :: Backend config a -> config -> IO ()
@@ -30,19 +30,27 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
   MkEnv{sendEvents} <- makeEnv config
   lastTimeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
-    lastTime <- readMVar lastTimeRef
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
-    clockVal <- modifyMVar clockRef (\x -> return (x + (1/fromIntegral ppb), x))
-    let events = signal (pruneSignal sig) (clockVal, (1/fromIntegral ppb))
-    sendEvents clockVal events
+    let
+      offsetClock :: Rational
+      offsetClock = 1 / fromIntegral ppb
 
-    let expectedOffset = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral ppb)
-    let expectedTimeNow = lastTime + expectedOffset
-    actualTimeNow <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-    let delta = actualTimeNow - expectedTimeNow
-    modifyMVar_ lastTimeRef(const . return $ expectedTimeNow)
-    threadDelay (fromIntegral $ (expectedOffset - delta) `div` 1000)
+      offsetTime :: Integer
+      offsetTime = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral ppb)
+
+    clockVal <- modifyMVar clockRef (\x -> return (x + offsetClock, x))
+    lastTime <- modifyMVar lastTimeRef (\x -> return (x + offsetTime, x))
+
+    let events = signal (pruneSignal sig) (clockVal, offsetClock)
+    sendEvents clockVal lastTime events
+
+    let expectedTimeNextTick = lastTime + offsetTime
+
+    now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+
+    let timeToWait = (expectedTimeNextTick - now) * 8 `div` 10
+    threadDelay (fromIntegral $ (timeToWait `div` 1000))
 
 runOnce :: IO a -> IO a
 runOnce computation = do
