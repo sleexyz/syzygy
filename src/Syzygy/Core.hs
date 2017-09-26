@@ -28,7 +28,7 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
   let ppb = 24 -- 24 pulses per beat
   MkEnv{sendEvents} <- makeEnv config
-  lastTimeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  timeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
@@ -40,16 +40,16 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
       offsetTime = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral ppb)
 
     clockVal <- modifyMVar clockRef (\x -> return (x + offsetClock, x))
-    lastTime <- modifyMVar lastTimeRef (\x -> return (x + offsetTime, x))
+    timeVal <- modifyMVar timeRef (\x -> return (x + offsetTime, x))
 
     let events = signal (pruneSignal sig) (clockVal, offsetClock)
-    sendEvents clockVal lastTime events
+    sendEvents clockVal timeVal events
 
-    let expectedTimeNextTick = lastTime + offsetTime
+    let expectedNextTimeVal = timeVal + offsetTime
 
     now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
 
-    let timeToWait = (expectedTimeNextTick - now) * 8 `div` 10
+    let timeToWait = (expectedNextTimeVal - now)
     threadDelay (fromIntegral $ (timeToWait `div` 1000))
 
 runOnce :: IO a -> IO a
