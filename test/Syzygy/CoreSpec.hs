@@ -2,11 +2,10 @@ module Syzygy.CoreSpec where
 
 import Test.Hspec
 import Control.Concurrent
-import qualified Data.Time as Time
+import qualified System.Clock as Clock
 import Data.Monoid ((<>))
 import Control.Monad (void)
-
--- TODO: use clock instead of time?
+import Data.Function ((&))
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -82,57 +81,60 @@ spec = do
         spb :: Int
         spb = 24
       let
-        getTimes :: Int -> Int -> IO [Time.UTCTime]
+        getTimes :: Int -> Int -> IO [Integer]
         getTimes bpm numBeats = do
           logRef <- newMVar []
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
             sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ _ _ -> modifyMVar_ logRef $ \xs -> do
-              x <- Time.getCurrentTime
+              x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
               return (x:xs)
           readMVar logRef
 
       describe "clock skew" $ do
         let
-          calculateSkew :: Int -> Int -> IO Time.NominalDiffTime
+          calculateSkew :: Int -> Int -> IO Integer
           calculateSkew bpm numBeats = do
-            now <- Time.getCurrentTime
+            now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
             times <- getTimes bpm numBeats
             let
-              timeElapsed :: Time.NominalDiffTime
-              timeElapsed = Time.diffUTCTime (head times) now
+              timeElapsed :: Integer
+              timeElapsed = head times - now
             let
-              expectedTimeElapsed :: Time.NominalDiffTime
-              expectedTimeElapsed = (60/fromIntegral bpm) * fromIntegral numBeats
-            return (expectedTimeElapsed -  timeElapsed)
+              expectedTimeElapsed :: Integer
+              expectedTimeElapsed = (10^9) * fromIntegral numBeats * 60 `div` fromIntegral bpm
+            return (expectedTimeElapsed - timeElapsed)
 
         it "is constant" $ do
-          skew <- ($[1, 2, 4]) $ traverse $ calculateSkew 240
+          skew <- [1, 2, 4, 8]
+            & traverse (calculateSkew 240)
+            & (fmap . fmap) fromIntegral
+            & (fmap . fmap) (/(10^9))
           let mu = mean skew
-          let squaredError = mean [((mu - x)^2) | x <- skew]
-          squaredError `shouldBeLessThan` 0.000001
+          let averageError = mean [(abs (mu - x)) | x <- skew]
+          averageError `shouldBeLessThan` 0.001
 
       describe "clock jitter" $ let
-        calculateJitter :: Int -> Int -> IO Time.NominalDiffTime
+        calculateJitter :: Int -> Int -> IO Double
         calculateJitter bpm numBeats = do
           logRef <- newMVar []
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
             sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ _ _ -> modifyMVar_ logRef $ \xs -> do
-              x <- Time.getCurrentTime
+              x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
               return (x:xs)
           times <- readMVar logRef
           let
-            delays :: [Time.NominalDiffTime]
-            delays = tail $ zipWith (flip Time.diffUTCTime) times (undefined:times)
+            delays :: [Integer]
+            delays = tail $ zipWith (-) (undefined:times) times
           let
-            expectedDelays :: [Time.NominalDiffTime]
-            expectedDelays = repeat $ (1 * (60/fromIntegral bpm) / fromIntegral spb)
+            expectedDelays :: [Integer]
+            expectedDelays = repeat $ 10^9 * 60 `div` fromIntegral bpm `div` fromIntegral spb
           let
-            deltas :: [Time.NominalDiffTime]
-            deltas = zipWith (\x y -> abs (x - y)) delays expectedDelays
+            deltas :: [Double]
+            deltas = zipWith (\x y -> (/(10^9)) $ fromIntegral $ abs (x - y)) delays expectedDelays
           return $ mean deltas * fromIntegral spb
 
         in void $ ($[1, 2, 4]) $ traverse $ \numBeats -> do
