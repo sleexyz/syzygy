@@ -3,10 +3,14 @@ module Syzygy.CoreSpec where
 import Test.Hspec
 import Control.Concurrent
 import qualified Data.Time as Time
+import Data.Monoid ((<>))
+import Control.Monad (void)
+
+-- TODO: use clock instead of time?
 
 import Syzygy.Core
 import Syzygy.Signal
-import TestUtils (shouldBeLessThan)
+import TestUtils (shouldBeLessThan, mean)
 
 makeMockBackend :: Chan (Rational, Integer, [Event String]) -> MVar () ->  Backend (CoreConfig String) String
 makeMockBackend spyChan sem = MkBackend {toCoreConfig, makeEnv}
@@ -35,16 +39,15 @@ withMockBackend MkCoreConfig {bpmRef, signalRef, clockRef} cont = do
   let
     mockBackend :: Backend (CoreConfig String) String
     mockBackend = makeMockBackend spyChan semaphore
-
+  let
     mockConfig :: CoreConfig String
     mockConfig = MkCoreConfig{bpmRef, signalRef, clockRef}
-
+  let
     withMockSendEvent :: (Rational -> Integer -> [ Event String] -> IO ()) -> IO ()
     withMockSendEvent mockSendEvents = do
       (clockVal, timeVal, events) <- readChan spyChan
       _ <- mockSendEvents clockVal timeVal events
       putMVar semaphore ()
-
   threadId <- forkIO $ runBackend mockBackend mockConfig
   cont MkMockContext {withMockSendEvent, bpmRef, signalRef}
   killThread threadId
@@ -76,8 +79,43 @@ spec = do
 
     describe "timing" $ do
       let
-        getDeltas :: Int -> Int -> IO [Time.NominalDiffTime]
-        getDeltas bpm numBeats = do
+        spb :: Int
+        spb = 24
+      let
+        getTimes :: Int -> Int -> IO [Time.UTCTime]
+        getTimes bpm numBeats = do
+          logRef <- newMVar []
+          config@MkCoreConfig{bpmRef} <- makeDefaultConfig
+          modifyMVar_ bpmRef (const $ return $ bpm)
+          withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
+            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ _ _ -> modifyMVar_ logRef $ \xs -> do
+              x <- Time.getCurrentTime
+              return (x:xs)
+          readMVar logRef
+
+      describe "clock skew" $ do
+        let
+          calculateSkew :: Int -> Int -> IO Time.NominalDiffTime
+          calculateSkew bpm numBeats = do
+            now <- Time.getCurrentTime
+            times <- getTimes bpm numBeats
+            let
+              timeElapsed :: Time.NominalDiffTime
+              timeElapsed = Time.diffUTCTime (head times) now
+            let
+              expectedTimeElapsed :: Time.NominalDiffTime
+              expectedTimeElapsed = (60/fromIntegral bpm) * fromIntegral numBeats
+            return (expectedTimeElapsed -  timeElapsed)
+
+        it "is constant" $ do
+          skew <- ($[1, 2, 4]) $ traverse $ calculateSkew 240
+          let mu = mean skew
+          let squaredError = mean [((mu - x)^2) | x <- skew]
+          squaredError `shouldBeLessThan` 0.000001
+
+      describe "clock jitter" $ let
+        calculateJitter :: Int -> Int -> IO Time.NominalDiffTime
+        calculateJitter bpm numBeats = do
           logRef <- newMVar []
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
@@ -89,26 +127,27 @@ spec = do
           let
             delays :: [Time.NominalDiffTime]
             delays = tail $ zipWith (flip Time.diffUTCTime) times (undefined:times)
-
+          let
             expectedDelays :: [Time.NominalDiffTime]
-            expectedDelays = repeat $ (1 * (60/fromIntegral bpm) / 24)
-
+            expectedDelays = repeat $ (1 * (60/fromIntegral bpm) / fromIntegral spb)
+          let
             deltas :: [Time.NominalDiffTime]
             deltas = zipWith (\x y -> abs (x - y)) delays expectedDelays
-          return deltas
+          return $ mean deltas * fromIntegral spb
 
-      describe "over 24 samples" $ do
-        it "has a net shift of less than 10ms, at 240 bpm" $ do
-          let bpm = 240
-          deltas <- getDeltas bpm 1
-          sum deltas `shouldBeLessThan` 0.010
+        in void $ ($[1, 2, 4]) $ traverse $ \numBeats -> do
+          describe ("over " <> show numBeats <> " beat(s)") $ do
+            it "is less than 15ms/beat at 240 bpm" $ do
+              let bpm = 240
+              jitter <- calculateJitter bpm numBeats
+              jitter ` shouldBeLessThan` 0.015
 
-        it "has a net shift of less than 15ms, at 120 bpm" $ do
-          let bpm = 120
-          deltas <- getDeltas bpm 1
-          sum deltas `shouldBeLessThan` 0.015
+            it "is less than 15ms/beat at 120 bpm" $ do
+              let bpm = 120
+              jitter <- calculateJitter bpm numBeats
+              jitter ` shouldBeLessThan` 0.015
 
-        it "has a net shift of less than 15ms at 60bpm" $ do
-          let bpm = 60
-          deltas <- getDeltas bpm 1
-          sum deltas `shouldBeLessThan` 0.015
+            it "is less than 15ms/beat at 60bpm" $ do
+              let bpm = 60
+              jitter <- calculateJitter bpm numBeats
+              jitter `shouldBeLessThan` 0.015

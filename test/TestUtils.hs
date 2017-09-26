@@ -14,3 +14,7 @@ shouldBeLessThan x y =
     <> show x
     <> " to be less than "
     <> show y
+
+
+mean :: Fractional a => [a] -> a
+mean xs = sum xs / (fromIntegral $ length xs)

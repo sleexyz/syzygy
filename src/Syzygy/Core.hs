@@ -26,7 +26,7 @@ newtype Env a = MkEnv
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
-  let ppb = 24 -- 24 pulses per beat
+  let spb = 24 -- 24 samples per beat
   MkEnv{sendEvents} <- makeEnv config
   timeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
@@ -34,10 +34,10 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     sig <- readMVar signalRef
     let
       offsetClock :: Rational
-      offsetClock = 1 / fromIntegral ppb
+      offsetClock = 1 / fromIntegral spb
 
       offsetTime :: Integer
-      offsetTime = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral ppb)
+      offsetTime = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral spb)
 
     clockVal <- modifyMVar clockRef (\x -> return (x + offsetClock, x))
     timeVal <- modifyMVar timeRef (\x -> return (x + offsetTime, x))
