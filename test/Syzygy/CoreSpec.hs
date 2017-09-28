@@ -78,9 +78,6 @@ spec = do
 
     describe "timing" $ do
       let
-        spb :: Int
-        spb = 24
-      let
         getTimes :: Int -> Int -> IO [Integer]
         getTimes bpm numBeats = do
           logRef <- newMVar []
@@ -131,23 +128,23 @@ spec = do
             delays = tail $ zipWith (-) (undefined:times) times
           let
             expectedDelays :: [Integer]
-            expectedDelays = repeat $ 10^9 * 60 `div` fromIntegral bpm `div` fromIntegral spb
+            expectedDelays = repeat $ 10^9 * 60 `div` fromIntegral bpm `div` fromIntegral _samplesPerBeat
           let
             deltas :: [Double]
             deltas = zipWith (\x y -> (/(10^9)) $ fromIntegral $ abs (x - y)) delays expectedDelays
-          return $ mean deltas * fromIntegral spb
+          return $ mean deltas * fromIntegral _samplesPerBeat
 
         in void $ ($[1, 2, 4]) $ traverse $ \numBeats -> do
           describe ("over " <> show numBeats <> " beat(s)") $ do
             it "is less than 15ms/beat at 240 bpm" $ do
               let bpm = 240
               jitter <- calculateJitter bpm numBeats
-              jitter ` shouldBeLessThan` 0.015
+              jitter `shouldBeLessThan` 0.015
 
             it "is less than 15ms/beat at 120 bpm" $ do
               let bpm = 120
               jitter <- calculateJitter bpm numBeats
-              jitter ` shouldBeLessThan` 0.015
+              jitter `shouldBeLessThan` 0.015
 
             it "is less than 15ms/beat at 60bpm" $ do
               let bpm = 60

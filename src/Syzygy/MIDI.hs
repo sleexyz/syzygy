@@ -90,13 +90,13 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
     let
       notes :: [MIDIEvent.T]
       notes =  events >>= extractMIDIEvents
-    _ <- traverse (MIDIEvent.output h) notes
-    _ <- MIDIEvent.drainOutput h
+    traverse (MIDIEvent.output h) notes
+    MIDIEvent.drainOutput h
     return ()
   in do
-    _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
+    Queue.control h queue MIDIEvent.QueueStart Nothing
     now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-    _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
+    Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
     continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
