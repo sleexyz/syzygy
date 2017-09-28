@@ -10,8 +10,7 @@ import Syzygy.Signal
 data CoreConfig a = MkCoreConfig
   { bpmRef :: MVar Int
   , signalRef :: MVar (Signal a)
-  , clockRef :: MVar Rational
-  -- , latencyNs :: Integer
+  , beatRef :: MVar Rational
   }
 
 data Backend config a = MkBackend
@@ -23,34 +22,34 @@ newtype Env a = MkEnv
   { sendEvents :: Rational -> Integer -> [Event a] -> IO ()
   }
 
+_samplesPerBeat :: Num a => a
+_samplesPerBeat = 24
+
 runBackend :: Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
-  let MkCoreConfig { bpmRef, signalRef, clockRef } = toCoreConfig config
-  let spb = 24 -- 24 samples per beat
+  let MkCoreConfig {bpmRef, signalRef, beatRef} = toCoreConfig config
   MkEnv{sendEvents} <- makeEnv config
-  timeRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  clockRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
     let
-      offsetClock :: Rational
-      offsetClock = 1 / fromIntegral spb
+      beatOffset :: Rational
+      beatOffset = 1 / _samplesPerBeat
+    let
+      clockOffset :: Integer
+      clockOffset = ((10^9 * 60) `div` fromIntegral bpm `div` _samplesPerBeat)
+    beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
+    clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
+    sendEvents beat clock $ signal (pruneSignal sig) (beat, beatOffset)
+    waitTil (clock + clockOffset)
 
-      offsetTime :: Integer
-      offsetTime = ((10^9 * 60) `div` fromIntegral bpm `div` fromIntegral spb)
-
-    clockVal <- modifyMVar clockRef (\x -> return (x + offsetClock, x))
-    timeVal <- modifyMVar timeRef (\x -> return (x + offsetTime, x))
-
-    let events = signal (pruneSignal sig) (clockVal, offsetClock)
-    sendEvents clockVal timeVal events
-
-    let expectedNextTimeVal = timeVal + offsetTime
-
-    now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-
-    let timeToWait = (expectedNextTimeVal - now)
-    threadDelay (fromIntegral $ (timeToWait `div` 1000))
+-- | waits until t nanoseconds since UNIX epoch
+waitTil :: Integer -> IO ()
+waitTil t = do
+  now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  let timeToWait = t - now
+  threadDelay (fromIntegral $ (timeToWait `div` 1000))
 
 runOnce :: IO a -> IO a
 runOnce computation = do

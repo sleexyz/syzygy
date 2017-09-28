@@ -18,10 +18,10 @@ data TestContext = MkTestContext {onEvent :: forall a. (MIDIEvent.T -> IO a) -> 
 makeDefaultConfig :: IO MIDIConfig
 makeDefaultConfig = do
   signalRef <- newMVar mempty
-  clockRef <- newMVar 0
+  beatRef <- newMVar 0
   bpmRef <- newMVar 60
   let midiPortName = "Syzygy test port"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
+  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
   return config
 
 listen :: String -> String -> IO () -> (MIDIEvent.T -> IO ()) -> IO ()

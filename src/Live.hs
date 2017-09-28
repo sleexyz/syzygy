@@ -15,11 +15,11 @@ import Syzygy.MIDI
 setup :: IO MIDIConfig
 setup = do
   signalRef <- newMVar mempty
-  clockRef <- newMVar 0
+  beatRef <- newMVar 0
   bpmRef <- newMVar 120
   let midiPortName = "UM-ONE MIDI 1"
   -- let midiPortName = "VirMIDI 2-0"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
+  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
   _ <- forkIO $ runBackend backend config
   return config
 

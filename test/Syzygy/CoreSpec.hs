@@ -32,7 +32,7 @@ data MockContext = MkMockContext
   }
 
 withMockBackend :: CoreConfig String -> (MockContext -> IO ()) -> IO ()
-withMockBackend MkCoreConfig {bpmRef, signalRef, clockRef} cont = do
+withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
   (spyChan :: Chan (Rational, Integer, [Event String])) <- newChan
   (semaphore :: MVar ()) <- newEmptyMVar
   let
@@ -40,7 +40,7 @@ withMockBackend MkCoreConfig {bpmRef, signalRef, clockRef} cont = do
     mockBackend = makeMockBackend spyChan semaphore
   let
     mockConfig :: CoreConfig String
-    mockConfig = MkCoreConfig{bpmRef, signalRef, clockRef}
+    mockConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
   let
     withMockSendEvent :: (Rational -> Integer -> [ Event String] -> IO ()) -> IO ()
     withMockSendEvent mockSendEvents = do
@@ -55,8 +55,8 @@ makeDefaultConfig :: IO (CoreConfig String)
 makeDefaultConfig = do
   bpmRef <- newMVar 120
   signalRef <- newMVar $ embed "hello"
-  clockRef <- newMVar 0
-  return MkCoreConfig {bpmRef, signalRef, clockRef}
+  beatRef <- newMVar 0
+  return MkCoreConfig {bpmRef, signalRef, beatRef}
 
 spec :: Spec
 spec = do

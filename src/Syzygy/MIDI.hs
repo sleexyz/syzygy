@@ -51,7 +51,7 @@ data MIDIConfig = MkMIDIConfig
   { midiPortName :: String
   , bpmRef :: MVar Int
   , signalRef :: MVar (Signal Word8)
-  , clockRef :: MVar Rational
+  , beatRef :: MVar Rational
   }
 
 stamp :: Queue.T -> Integer -> MIDIEvent.T -> MIDIEvent.T
@@ -74,41 +74,35 @@ noteOff :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
 noteOff address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOffData pitch)
 
 makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> do
-  let
-    sendEvents :: Rational -> Integer -> [Event Word8] -> IO ()
-    sendEvents clockVal lastTime events = do
-      bpm <- readMVar bpmRef
-      let
-        extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
-        extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
-            [ noteOn address queue (getTimeOf eventStart) payload
-            , noteOff address queue (getTimeOf (eventStart + dur)) payload
-            ]
-          where
-            latency :: Integer
-            latency = 0
-
-            getTimeOf :: Rational -> Integer
-            getTimeOf val = latency + lastTime + floor ((10^9 * 60) * (val - clockVal) / fromIntegral bpm)
-
-        notes :: [MIDIEvent.T]
-        notes =  events >>= extractMIDIEvents
-      _ <- traverse (MIDIEvent.output h) notes
-      _ <- MIDIEvent.drainOutput h
-      return ()
-
-  -- set up queue
-  _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
-  now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-  _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
-  -- continue
-  continuation MkEnv {sendEvents}
+makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> let
+  sendEvents :: Rational -> Integer -> [Event Word8] -> IO ()
+  sendEvents beat clock events = do
+    bpm <- readMVar bpmRef
+    let
+      beatToClock :: Rational -> Integer
+      beatToClock b = clock + floor ((10^9 * 60) * (b - beat) / fromIntegral bpm)
+    let
+      extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
+      extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
+          [ noteOn address queue (beatToClock eventStart) payload
+          , noteOff address queue (beatToClock (eventStart + dur)) payload
+          ]
+    let
+      notes :: [MIDIEvent.T]
+      notes =  events >>= extractMIDIEvents
+    _ <- traverse (MIDIEvent.output h) notes
+    _ <- MIDIEvent.drainOutput h
+    return ()
+  in do
+    _ <- Queue.control h queue MIDIEvent.QueueStart Nothing
+    now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+    _ <- Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
+    continuation MkEnv {sendEvents}
 
 makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
 makeMIDIEnv config = do
   (envRef :: MVar (Maybe (Env Word8))) <- newEmptyMVar
-  void $ forkOS $ do
+  void $ forkIO $ do
     makeMIDIEnv' config $ \env -> do
       putMVar envRef $ Just env
       forever (threadDelay 1000000000)
@@ -122,8 +116,8 @@ backend :: Backend MIDIConfig Word8
 backend = MkBackend {toCoreConfig, makeEnv}
   where
     toCoreConfig :: MIDIConfig -> CoreConfig Word8
-    toCoreConfig MkMIDIConfig{bpmRef, signalRef, clockRef} =
-      MkCoreConfig{bpmRef, signalRef, clockRef}
+    toCoreConfig MkMIDIConfig{bpmRef, signalRef, beatRef} =
+      MkCoreConfig{bpmRef, signalRef, beatRef}
 
     makeEnv :: MIDIConfig -> IO (Env Word8)
     makeEnv = makeMIDIEnv
