@@ -32,7 +32,6 @@ listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Bloc
       event <- MIDIEvent.input h
       eventHandler event
 
-
 withMockMIDIServer :: MIDIConfig -> (TestContext -> IO a) -> IO a
 withMockMIDIServer config continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
