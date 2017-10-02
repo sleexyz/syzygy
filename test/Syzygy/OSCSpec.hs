@@ -1,7 +1,8 @@
 module Syzygy.OSCSpec where
 
 import Control.Concurrent
-import TestUtils (shouldBeLessThan)
+import TestUtils (shouldBeLessThan, mean)
+import Data.Function ((&))
 import Test.Hspec
 import Vivid.OSC (OSCBundle(..), decodeOSCBundle, OSCDatum(OSC_S), OSC(..), Timestamp(..) )
 import Control.Monad
@@ -16,9 +17,12 @@ import Syzygy.Core
 diffTimestamp :: Timestamp -> Timestamp -> Double
 diffTimestamp (Timestamp x) (Timestamp y) = x - y
 
-data TestContext = MkTestContext { receiveOSCBundle :: (OSCBundle -> IO ()) -> IO () }
+data TestContext = MkTestContext
+  { receiveOSCBundle :: forall a. (OSCBundle -> IO a) -> IO a
+  , getMessage :: IO OSC
+  }
 
-withMockOSCServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO ())  -> IO ()
+withMockOSCServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO a)  -> IO a
 withMockOSCServer handleOSCBundle continuation = do
   address <- head <$> Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show Network.aNY_PORT))
   socket <- Network.socket (Network.addrFamily address) Network.Datagram Network.defaultProtocol
@@ -28,11 +32,11 @@ withMockOSCServer handleOSCBundle continuation = do
     let Right bundle = decodeOSCBundle msg
     handleOSCBundle bundle
   portNumber <- Network.socketPort socket
-  continuation portNumber
+  result <- continuation portNumber
   killThread threadId
-  return ()
+  return result
 
-withMockOSC :: Signal [OSC] -> Int -> (TestContext -> IO ()) -> IO ()
+withMockOSC :: Signal OSC -> Int -> (TestContext -> IO a) -> IO a
 withMockOSC defaultSignal bpm continuation = do
   (bundleChan :: MVar OSCBundle) <- newEmptyMVar
   withMockOSCServer (putMVar bundleChan) $ \portNumber -> do
@@ -44,8 +48,10 @@ withMockOSC defaultSignal bpm continuation = do
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan
           bundleHandler bundleVal
-    continuation MkTestContext{receiveOSCBundle}
+    let getMessage = receiveOSCBundle $ \(OSCBundle _ [Right message]) -> return message
+    result <- continuation MkTestContext{receiveOSCBundle, getMessage}
     killThread clientThread
+    return result
 
 makeSuperDirtMessage :: BS.ByteString -> OSC
 makeSuperDirtMessage sound = OSC "/play2" message
@@ -56,23 +62,20 @@ makeSuperDirtMessage sound = OSC "/play2" message
 spec :: Spec
 spec = do
   describe "OSC backend" $ do
+    let bpm = 240
+    let signal = nest [embed $ makeSuperDirtMessage "bd", embed $ makeSuperDirtMessage "sn"]
+
     it "can send events" $ do
-      let bpm = 60
-      let signal = nest [embed [makeSuperDirtMessage "bd"], embed [makeSuperDirtMessage "sn"]]
-      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
-        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
-        receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
+      withMockOSC signal bpm $ \MkTestContext{getMessage} -> do
+        message <- getMessage
+        message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
+
+        message <- getMessage
+        message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
     it "sends events with the right timestamps" $ do
-      let bpm = 60
-      let signal = nest [embed [makeSuperDirtMessage "bd"], embed [makeSuperDirtMessage "sn"]]
-      (timestampsRef :: MVar [Vivid.OSC.Timestamp]) <- newMVar []
-      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
-        sequence_ $ replicate 4 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> do
-          modifyMVar_ timestampsRef (\xs -> return $ timestamp:xs)
-
-      timestamps <- readMVar timestampsRef
-      let delays = zipWith diffTimestamp timestamps (drop 1 timestamps)
-      let expectedDelays = repeat 0.5
-      let deltas = zipWith (-) delays expectedDelays
-      sum deltas `shouldBeLessThan` 0.1
+      error <- withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} ->
+        (sequence $ replicate 12 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp)
+          & fmap (\timestamps -> zipWith diffTimestamp (tail timestamps) timestamps)
+          & fmap (\delays -> zipWith (\x y -> abs(x - y)) (repeat (60/fromIntegral bpm/2)) delays)
+      mean error `shouldBeLessThan` 1e-3
