@@ -36,7 +36,7 @@ withMockOSCServer handleOSCBundle continuation = do
   killThread threadId
   return result
 
-withMockOSC :: Signal OSC -> Int -> (TestContext -> IO a) -> IO a
+withMockOSC :: Signal [OSC] -> Int -> (TestContext -> IO a) -> IO a
 withMockOSC defaultSignal bpm continuation = do
   (bundleChan :: MVar OSCBundle) <- newEmptyMVar
   withMockOSCServer (putMVar bundleChan) $ \portNumber -> do
@@ -63,7 +63,7 @@ spec :: Spec
 spec = do
   describe "OSC backend" $ do
     let bpm = 240
-    let signal = nest [embed $ makeSuperDirtMessage "bd", embed $ makeSuperDirtMessage "sn"]
+    let signal = nest [embed [makeSuperDirtMessage "bd"], embed [makeSuperDirtMessage "sn"]]
 
     it "can send events" $ do
       withMockOSC signal bpm $ \MkTestContext{getMessage} -> do
