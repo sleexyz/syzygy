@@ -15,6 +15,12 @@ shouldBeLessThan x y =
     <> " to be less than "
     <> show y
 
-
 mean :: Fractional a => [a] -> a
 mean xs = sum xs / (fromIntegral $ length xs)
+
+doUntil :: (a -> Bool) -> IO a -> IO a
+doUntil pred action = do
+  result <- action
+  if pred result
+  then return result
+  else doUntil pred action
