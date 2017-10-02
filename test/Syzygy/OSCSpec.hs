@@ -73,7 +73,7 @@ spec = do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
-    it "sends events at the right tempo, with an average jitter of less than 1ms" $ do
+    it "sends events at the right tempo, with an average jitter of less than 200ms" $ do
       withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
         deltas <- (sequence $ replicate 12 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp)
           & fmap (\timestamps -> zipWith diffTimestamp (tail timestamps) timestamps)
@@ -83,4 +83,4 @@ spec = do
         let
           error :: [Double]
           error = zipWith (\x y -> abs(x - y)) (repeat expectedTimeDifference) deltas
-        mean error `shouldBeLessThan` 1e-3
+        mean error `shouldBeLessThan` 300e-9

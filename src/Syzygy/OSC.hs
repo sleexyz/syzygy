@@ -2,7 +2,6 @@ module Syzygy.OSC where
 
 import Control.Concurrent.MVar
 import qualified Data.ByteString as BS
-import qualified Data.Time as Time
 import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
 import qualified Vivid.OSC as OSC
@@ -10,8 +9,10 @@ import qualified Vivid.OSC as OSC
 import Syzygy.Signal
 import Syzygy.Core
 
-toOSCBundle :: (Time.UTCTime, [OSC.OSC]) -> BS.ByteString
-toOSCBundle (time, message) = OSC.encodeOSCBundle $ OSC.OSCBundle (OSC.utcToTimestamp time) (Right <$> message)
+toOSCBundle :: (Integer, [OSC.OSC]) -> BS.ByteString
+toOSCBundle (timeNs, message) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp (Right <$> message)
+  where
+    timestamp = OSC.Timestamp (fromInteger timeNs / 10^9)
 
 data OSCConfig = MkOSCConfig
   { portNumber :: Network.PortNumber
@@ -20,13 +21,19 @@ data OSCConfig = MkOSCConfig
   , beatRef :: MVar Rational
   }
 
-toAbsoluteTime :: Time.UTCTime -> Rational -> Int -> Event a -> (Time.UTCTime, a)
-toAbsoluteTime now clockVal bpm MkEvent{interval=(eventStart, _), payload} =
+epochOffset :: Integer
+epochOffset = 2208988800 * 10^9
+
+toAbsoluteTime :: Int -> Rational -> Integer -> Event a -> (Integer, a)
+toAbsoluteTime bpm beatStart clock MkEvent{interval=(eventStart, _), payload} =
   let
-    delay = (eventStart - clockVal) * 60 / fromIntegral bpm
-    timestamp = Time.addUTCTime (fromRational delay) now
+    offset :: Integer
+    offset = floor $ (10^9 * 60) * (eventStart - beatStart) / fromIntegral bpm
+
+    time :: Integer
+    time = clock + offset + epochOffset
   in
-    (timestamp, payload)
+    (time, payload)
 
 makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
 makeLocalUDPConnection portNumber = do
@@ -40,10 +47,9 @@ makeOSCEnv MkOSCConfig{portNumber, bpmRef} = do
   socket <- makeLocalUDPConnection portNumber
   let
     sendEvents :: Rational -> Integer -> [ Event [OSC.OSC] ] -> IO ()
-    sendEvents clockVal _ events = do
-      now <- Time.getCurrentTime
+    sendEvents beat clock events = do
       bpm <- readMVar bpmRef
-      let oscEvents = [toAbsoluteTime now clockVal bpm event | event <- events]
+      let oscEvents = [toAbsoluteTime bpm beat clock event | event <- events]
       _ <- traverse (NetworkBS.send socket . toOSCBundle) oscEvents
       return ()
   return MkEnv { sendEvents }
