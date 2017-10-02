@@ -10,18 +10,13 @@ import qualified Vivid.OSC as OSC
 import Syzygy.Signal
 import Syzygy.Core
 
-toOSCBundle :: (Time.UTCTime, BS.ByteString) -> BS.ByteString
-toOSCBundle (time, sound) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp [Right $ OSC.OSC "/play2" message] where
-    timestamp :: OSC.Timestamp
-    timestamp = OSC.utcToTimestamp time
-
-    message :: [OSC.OSCDatum]
-    message = [OSC.OSC_S "s", OSC.OSC_S sound]
+toOSCBundle :: (Time.UTCTime, [OSC.OSC]) -> BS.ByteString
+toOSCBundle (time, message) = OSC.encodeOSCBundle $ OSC.OSCBundle (OSC.utcToTimestamp time) (Right <$> message)
 
 data OSCConfig = MkOSCConfig
   { portNumber :: Network.PortNumber
   , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal BS.ByteString)
+  , signalRef :: MVar (Signal [OSC.OSC])
   , beatRef :: MVar Rational
   }
 
@@ -40,11 +35,11 @@ makeLocalUDPConnection portNumber = do
   Network.connect socket (Network.addrAddress a)
   return socket
 
-makeOSCEnv :: OSCConfig -> IO (Env BS.ByteString)
+makeOSCEnv :: OSCConfig -> IO (Env [OSC.OSC])
 makeOSCEnv MkOSCConfig{portNumber, bpmRef} = do
   socket <- makeLocalUDPConnection portNumber
   let
-    sendEvents :: Rational -> Integer -> [ Event BS.ByteString ] -> IO ()
+    sendEvents :: Rational -> Integer -> [ Event [OSC.OSC] ] -> IO ()
     sendEvents clockVal _ events = do
       now <- Time.getCurrentTime
       bpm <- readMVar bpmRef
@@ -53,14 +48,14 @@ makeOSCEnv MkOSCConfig{portNumber, bpmRef} = do
       return ()
   return MkEnv { sendEvents }
 
-backend :: Backend OSCConfig BS.ByteString
+backend :: Backend OSCConfig [OSC.OSC]
 backend = MkBackend {toCoreConfig, makeEnv}
   where
-    toCoreConfig :: OSCConfig -> CoreConfig BS.ByteString
+    toCoreConfig :: OSCConfig -> CoreConfig [OSC.OSC]
     toCoreConfig MkOSCConfig {bpmRef, signalRef, beatRef} =
       MkCoreConfig {bpmRef, signalRef, beatRef}
 
-    makeEnv :: OSCConfig -> IO (Env BS.ByteString)
+    makeEnv :: OSCConfig -> IO (Env [OSC.OSC])
     makeEnv = makeOSCEnv
 
 main :: IO ()
