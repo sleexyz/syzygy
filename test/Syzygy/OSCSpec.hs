@@ -1,4 +1,4 @@
-module Syzygy.SuperDirtSpec where
+module Syzygy.OSCSpec where
 
 import Control.Concurrent
 import TestUtils (shouldBeLessThan)
@@ -6,7 +6,7 @@ import Test.Hspec
 import Vivid.OSC (OSCBundle(..), decodeOSCBundle, OSCDatum(OSC_S), OSC(..), Timestamp(..) )
 import Control.Monad
 
-import Syzygy.SuperDirt
+import Syzygy.OSC
 import Syzygy.Signal
 import Syzygy.Core
 import qualified Data.ByteString as BS
@@ -32,14 +32,14 @@ withMockOSCServer handleOSCBundle continuation = do
   killThread threadId
   return ()
 
-withMockSuperDirt :: Signal BS.ByteString -> Int -> (TestContext -> IO ()) -> IO ()
-withMockSuperDirt defaultSignal bpm continuation = do
+withMockOSC :: Signal BS.ByteString -> Int -> (TestContext -> IO ()) -> IO ()
+withMockOSC defaultSignal bpm continuation = do
   (bundleChan :: MVar OSCBundle) <- newEmptyMVar
-  withMockOSCServer (putMVar bundleChan) $ \superDirtPortNumber -> do
+  withMockOSCServer (putMVar bundleChan) $ \portNumber -> do
     bpmRef <- newMVar bpm
     signalRef <- newMVar defaultSignal
     beatRef <- newMVar 0
-    let config = MkSuperDirtConfig{superDirtPortNumber, bpmRef, signalRef, beatRef}
+    let config = MkOSCConfig{portNumber, bpmRef, signalRef, beatRef}
     clientThread <- forkIO $ runBackend backend config
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan
@@ -49,11 +49,11 @@ withMockSuperDirt defaultSignal bpm continuation = do
 
 spec :: Spec
 spec = do
-  describe "SuperDirt backend" $ do
+  describe "OSC backend" $ do
     it "can send events" $ do
       let bpm = 60
       let signal = nest [embed "bd", embed "sn"]
-      withMockSuperDirt signal bpm $ \MkTestContext{receiveOSCBundle} -> do
+      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
         receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
         receiveOSCBundle $ \(OSCBundle _ [Right message]) -> message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
@@ -61,7 +61,7 @@ spec = do
       let bpm = 60
       let signal = nest [embed "bd", embed "sn"]
       (timestampsRef :: MVar [Vivid.OSC.Timestamp]) <- newMVar []
-      withMockSuperDirt signal bpm $ \MkTestContext{receiveOSCBundle} -> do
+      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
         sequence_ $ replicate 4 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> do
           modifyMVar_ timestampsRef (\xs -> return $ timestamp:xs)
 
