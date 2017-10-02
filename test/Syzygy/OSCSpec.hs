@@ -65,7 +65,7 @@ spec = do
     let bpm = 240
     let signal = nest [embed [makeSuperDirtMessage "bd"], embed [makeSuperDirtMessage "sn"]]
 
-    it "can send events" $ do
+    it "sends events with the right data" $ do
       withMockOSC signal bpm $ \MkTestContext{getMessage} -> do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
@@ -73,9 +73,14 @@ spec = do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
-    it "sends events with the right timestamps" $ do
-      error <- withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} ->
-        (sequence $ replicate 12 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp)
+    it "sends events at the right tempo, with an average jitter of less than 1ms" $ do
+      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
+        deltas <- (sequence $ replicate 12 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp)
           & fmap (\timestamps -> zipWith diffTimestamp (tail timestamps) timestamps)
-          & fmap (\delays -> zipWith (\x y -> abs(x - y)) (repeat (60/fromIntegral bpm/2)) delays)
-      mean error `shouldBeLessThan` 1e-3
+        let
+          expectedTimeDifference :: Double
+          expectedTimeDifference = 60/fromIntegral bpm/2
+        let
+          error :: [Double]
+          error = zipWith (\x y -> abs(x - y)) (repeat expectedTimeDifference) deltas
+        mean error `shouldBeLessThan` 1e-3
