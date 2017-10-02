@@ -31,6 +31,7 @@ library
     , alsa-core
     , alsa-seq
     , foreign-store
+    , clock
   exposed-modules:
       Live
       Syzygy.Core
@@ -56,6 +57,7 @@ executable syzygy-live
     , alsa-core
     , alsa-seq
     , foreign-store
+    , clock
   other-modules:
       Live
       Syzygy.Core
@@ -81,6 +83,7 @@ test-suite syzygy-test
     , alsa-core
     , alsa-seq
     , foreign-store
+    , clock
     , syzygy
     , hspec
     , hspec-expectations

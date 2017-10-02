@@ -22,7 +22,7 @@ data SuperDirtConfig = MkSuperDirtConfig
   { superDirtPortNumber :: Network.PortNumber
   , bpmRef :: MVar Int
   , signalRef :: MVar (Signal BS.ByteString)
-  , clockRef :: MVar Rational
+  , beatRef :: MVar Rational
   }
 
 toAbsoluteTime :: Time.UTCTime -> Rational -> Int -> Event a -> (Time.UTCTime, a)
@@ -44,8 +44,8 @@ makeSuperDirtEnv :: SuperDirtConfig -> IO (Env BS.ByteString)
 makeSuperDirtEnv MkSuperDirtConfig{superDirtPortNumber, bpmRef} = do
   superDirtSocket <- makeLocalUDPConnection superDirtPortNumber
   let
-    sendEvents :: Rational -> [ Event BS.ByteString ] -> IO ()
-    sendEvents clockVal events = do
+    sendEvents :: Rational -> Integer -> [ Event BS.ByteString ] -> IO ()
+    sendEvents clockVal _ events = do
       now <- Time.getCurrentTime
       bpm <- readMVar bpmRef
       let oscEvents = [toAbsoluteTime now clockVal bpm event | event <- events]
@@ -57,8 +57,8 @@ backend :: Backend SuperDirtConfig BS.ByteString
 backend = MkBackend {toCoreConfig, makeEnv}
   where
     toCoreConfig :: SuperDirtConfig -> CoreConfig BS.ByteString
-    toCoreConfig MkSuperDirtConfig {bpmRef, signalRef, clockRef} =
-      MkCoreConfig {bpmRef, signalRef, clockRef}
+    toCoreConfig MkSuperDirtConfig {bpmRef, signalRef, beatRef} =
+      MkCoreConfig {bpmRef, signalRef, beatRef}
 
     makeEnv :: SuperDirtConfig -> IO (Env BS.ByteString)
     makeEnv = makeSuperDirtEnv
@@ -67,7 +67,7 @@ main :: IO ()
 main = do
   bpmRef <-  newMVar 60
   signalRef <- newMVar mempty
-  clockRef <- newMVar 0
+  beatRef <- newMVar 0
   let superDirtPortNumber = 57120
-  let config = MkSuperDirtConfig { bpmRef, signalRef, clockRef, superDirtPortNumber }
+  let config = MkSuperDirtConfig { bpmRef, signalRef, beatRef, superDirtPortNumber }
   runBackend backend config

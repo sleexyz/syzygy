@@ -38,8 +38,8 @@ withMockSuperDirt defaultSignal bpm continuation = do
   withMockOSCServer (putMVar bundleChan) $ \superDirtPortNumber -> do
     bpmRef <- newMVar bpm
     signalRef <- newMVar defaultSignal
-    clockRef <- newMVar 0
-    let config = MkSuperDirtConfig{superDirtPortNumber, bpmRef, signalRef, clockRef}
+    beatRef <- newMVar 0
+    let config = MkSuperDirtConfig{superDirtPortNumber, bpmRef, signalRef, beatRef}
     clientThread <- forkIO $ runBackend backend config
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan

@@ -1,28 +1,27 @@
+{-# LANGUAGE ViewPatterns #-}
 module Syzygy.MIDISpec where
 
 import Control.Concurrent
 import Control.Monad
 import Data.Word (Word8)
+import Data.Function
 import qualified Sound.ALSA.Sequencer as SndSeq
 import qualified Sound.ALSA.Sequencer.Client as Client
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Sound.ALSA.Sequencer.Port as Port
+import qualified Sound.ALSA.Sequencer.Time as MIDITime
+import qualified Sound.ALSA.Sequencer.RealTime as MIDIRealTime
 import Test.Hspec
 
 import Syzygy.Core
 import Syzygy.MIDI
 import Syzygy.Signal
+import TestUtils (shouldBeLessThan, mean, doUntil)
 
-data TestContext = MkTestContext {onEvent :: forall a. (MIDIEvent.T -> IO a) -> IO a}
-
-makeDefaultConfig :: IO MIDIConfig
-makeDefaultConfig = do
-  signalRef <- newMVar mempty
-  clockRef <- newMVar 0
-  bpmRef <- newMVar 60
-  let midiPortName = "Syzygy test port"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, clockRef}
-  return config
+data TestContext = MkTestContext
+  { onEvent :: forall a. (MIDIEvent.T -> IO a) -> IO a
+  , getNoteEvent :: IO MIDIEvent.T
+  }
 
 listen :: String -> String -> IO () -> (MIDIEvent.T -> IO ()) -> IO ()
 listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Block $ \(h :: SndSeq.T SndSeq.InputMode) -> do
@@ -33,8 +32,7 @@ listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Bloc
       event <- MIDIEvent.input h
       eventHandler event
 
-
-withMockMIDIServer :: MIDIConfig -> (TestContext -> IO ()) -> IO ()
+withMockMIDIServer :: MIDIConfig -> (TestContext -> IO a) -> IO a
 withMockMIDIServer config continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
   (midiEventRef :: MVar MIDIEvent.T) <- newEmptyMVar
@@ -63,36 +61,75 @@ withMockMIDIServer config continuation = do
       event <- takeMVar midiEventRef
       handleEvent event
 
-  continuation MkTestContext{onEvent}
+    getNoteEvent :: IO MIDIEvent.T
+    getNoteEvent = doUntil isNoteEvent (onEvent return)
+
+  result <- continuation MkTestContext{onEvent, getNoteEvent}
 
   killThread listenerThread
   killThread clientThread
+  return result
 
-getPitch :: MIDIEvent.Note -> Word8
-getPitch note = MIDIEvent.unPitch (MIDIEvent.noteNote note)
+getPitch :: MIDIEvent.T -> Word8
+getPitch (MIDIEvent.body -> MIDIEvent.NoteEv _ note) = MIDIEvent.unPitch (MIDIEvent.noteNote note)
+getPitch (MIDIEvent.body -> _ ) = error "not a note"
+
+getNoteEvTag :: MIDIEvent.T -> MIDIEvent.NoteEv
+getNoteEvTag (MIDIEvent.body -> MIDIEvent.NoteEv noteEv _) = noteEv
+getNoteEvTag (MIDIEvent.body -> _ ) = error "not a note"
+
+getNoteTime :: MIDIEvent.T -> Integer
+getNoteTime MIDIEvent.Cons{time = MIDITime.Cons MIDITime.Absolute (MIDITime.Real time)} = MIDIRealTime.toInteger time
+getNoteTime _ = error "not absolute time"
+
+isNoteEvent :: MIDIEvent.T -> Bool
+isNoteEvent event = case MIDIEvent.body event of
+  MIDIEvent.NoteEv _ _ -> True
+  _ -> False
+
+makeDefaultConfig :: IO MIDIConfig
+makeDefaultConfig = do
+  signalRef <- newMVar $ switch [embed 100, mempty, embed 200, mempty] & fast 2
+  beatRef <- newMVar 0
+  bpmRef <- newMVar 240
+  let midiPortName = "Syzygy test port"
+  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
+  return config
 
 spec :: Spec
 spec = do
-  describe "MIDI out" $ do
-    it "can send MIDI signals" $ do
-      config@MkMIDIConfig{signalRef} <- makeDefaultConfig
-      modifyMVar_ signalRef (const $ return $ embed 60)
-      withMockMIDIServer config $ \MkTestContext{onEvent} -> do
-        events <- sequence $ replicate 3 $ onEvent return
+  describe "MIDI Backend" $ do
+    it "sends MIDI events with the right notes" $ do
+      config <- makeDefaultConfig
+      withMockMIDIServer config $ \MkTestContext{getNoteEvent} -> do
+        event <- getNoteEvent
+        getPitch event `shouldBe` 100
+        getNoteEvTag event `shouldBe` MIDIEvent.NoteOn
+
+        event <- getNoteEvent
+        getPitch event `shouldBe` 100
+        getNoteEvTag event `shouldBe` MIDIEvent.NoteOff
+
+        event <- getNoteEvent
+        getPitch event `shouldBe` 200
+        getNoteEvTag event `shouldBe` MIDIEvent.NoteOn
+
+        event <- getNoteEvent
+        getPitch event `shouldBe` 200
+        getNoteEvTag event `shouldBe` MIDIEvent.NoteOff
+
+    it "sends MIDI events at the right tempo, with jitter of less than 10ns" $ do
+      config <- makeDefaultConfig
+      withMockMIDIServer config $ \MkTestContext{getNoteEvent} -> do
+        timeDifferences <- sequence [getNoteEvent | _ <- [1..10]]
+          & (fmap . fmap) getNoteTime
+          & fmap (\times -> zipWith (-) (tail times) times)
         let
-          filteredData :: [MIDIEvent.Data]
-          filteredData = do
-            event <- events
-            case MIDIEvent.body event of
-              body@(MIDIEvent.NoteEv _ _) -> return body
-              _ -> fail "not note"
-
-          noteEv1, noteEv2 :: MIDIEvent.NoteEv
-          note1, note2 :: MIDIEvent.Note
-          [ MIDIEvent.NoteEv noteEv1 note1, MIDIEvent.NoteEv noteEv2 note2] = filteredData
-
-        getPitch note1 `shouldBe` 60
-        noteEv1 `shouldBe` MIDIEvent.NoteOn
-
-        getPitch note2 `shouldBe` 60
-        noteEv2 `shouldBe` MIDIEvent.NoteOff
+          expectedTimeDifference :: Integer
+          expectedTimeDifference = (10^9) `div` (240 `div` 60) `div` 2
+        let
+          error :: [Double]
+          error = timeDifferences
+              & fmap (\delta -> abs (expectedTimeDifference - delta))
+              & fmap fromInteger
+        mean error `shouldBeLessThan` 10
