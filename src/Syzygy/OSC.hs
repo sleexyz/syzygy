@@ -1,5 +1,7 @@
 module Syzygy.OSC where
 
+import Data.Function ((&))
+import Control.Arrow (first)
 import Control.Concurrent.MVar
 import qualified Data.ByteString as BS
 import qualified Network.Socket as Network
@@ -25,17 +27,6 @@ data OSCConfig = MkOSCConfig
 epochOffset :: Integer
 epochOffset = 2208988800 * 10^9
 
-toAbsoluteTime :: Int -> Rational -> Integer -> Event a -> (Integer, a)
-toAbsoluteTime bpm beatStart clock MkEvent{interval=(eventStart, _), payload} =
-  let
-    offset :: Integer
-    offset = floor $ (10^9 * 60) * (eventStart - beatStart) / fromIntegral bpm
-
-    time :: Integer
-    time = clock + offset + epochOffset
-  in
-    (time, payload)
-
 makeLocalUDPConnection :: Network.PortNumber -> IO Network.Socket
 makeLocalUDPConnection portNumber = do
   (a:_) <- Network.getAddrInfo Nothing (Just "127.0.0.1") (Just (show portNumber))
@@ -44,14 +35,16 @@ makeLocalUDPConnection portNumber = do
   return socket
 
 makeOSCEnv :: OSCConfig -> IO (Env [OSC.OSC])
-makeOSCEnv MkOSCConfig{portNumber, bpmRef} = do
+makeOSCEnv MkOSCConfig{portNumber} = do
   socket <- makeLocalUDPConnection portNumber
   let
-    sendEvents :: Rational -> Integer -> [ Event [OSC.OSC] ] -> IO ()
-    sendEvents beat clock events = do
-      bpm <- readMVar bpmRef
-      let oscEvents = [toAbsoluteTime bpm beat clock event | event <- events]
-      _ <- traverse (NetworkBS.send socket . toOSCBundle) oscEvents
+    sendEvents :: [ (Integer, [OSC.OSC]) ] -> IO ()
+    sendEvents events = do
+      let
+        correctedEvents :: [(Integer, [OSC.OSC])]
+        correctedEvents = events
+          & (fmap . first) (+epochOffset)
+      _ <- traverse (NetworkBS.send socket . toOSCBundle) correctedEvents
       return ()
   return MkEnv { sendEvents }
 

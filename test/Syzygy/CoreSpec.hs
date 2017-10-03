@@ -9,31 +9,32 @@ import Data.Function ((&))
 
 import Syzygy.Core
 import Syzygy.Signal
-import TestUtils (shouldBeLessThan, mean)
+import TestUtils (shouldBeLessThan, mean, doUntil)
 
-makeMockBackend :: Chan (Rational, Integer, [Event String]) -> MVar () ->  Backend (CoreConfig String) String
+makeMockBackend :: Chan [(Integer, String)] -> MVar () ->  Backend (CoreConfig String) String
 makeMockBackend spyChan sem = MkBackend {toCoreConfig, makeEnv}
   where
     toCoreConfig :: CoreConfig String -> CoreConfig String
     toCoreConfig = id
 
-    sendEvents :: Rational -> Integer -> [Event String] -> IO ()
-    sendEvents clockVal timeVal events = do
-      writeChan spyChan (clockVal, timeVal, events)
+    sendEvents :: [(Integer, String)] -> IO ()
+    sendEvents events = do
+      writeChan spyChan events
       takeMVar sem
 
     makeEnv :: CoreConfig String -> IO (Env String)
     makeEnv _ = return MkEnv { sendEvents }
 
 data MockContext = MkMockContext
-  { withMockSendEvent :: (Rational -> Integer -> [ Event String ] -> IO ()) -> IO ()
+  { withMockSendEvent :: forall a. ([ (Integer, String) ] -> IO a) -> IO a
+  , getNextNonEmptyBundle :: IO [(Integer, String)]
   , bpmRef :: MVar Int
   , signalRef :: MVar (Signal String)
   }
 
-withMockBackend :: CoreConfig String -> (MockContext -> IO ()) -> IO ()
+withMockBackend :: forall a. CoreConfig String -> (MockContext -> IO a) -> IO a
 withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
-  (spyChan :: Chan (Rational, Integer, [Event String])) <- newChan
+  spyChan <- newChan
   (semaphore :: MVar ()) <- newEmptyMVar
   let
     mockBackend :: Backend (CoreConfig String) String
@@ -42,14 +43,21 @@ withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
     mockConfig :: CoreConfig String
     mockConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
   let
-    withMockSendEvent :: (Rational -> Integer -> [ Event String] -> IO ()) -> IO ()
+    withMockSendEvent :: forall a. ([(Integer, String)] -> IO a) -> IO a
     withMockSendEvent mockSendEvents = do
-      (clockVal, timeVal, events) <- readChan spyChan
-      _ <- mockSendEvents clockVal timeVal events
+      events <- readChan spyChan
+      result <- mockSendEvents events
       putMVar semaphore ()
+      return result
+  let
+    getNextNonEmptyBundle :: IO [(Integer, String)]
+    getNextNonEmptyBundle = withMockSendEvent return
+      & doUntil (\events -> length events > 0)
+
   threadId <- forkIO $ runBackend mockBackend mockConfig
-  cont MkMockContext {withMockSendEvent, bpmRef, signalRef}
+  result <- cont MkMockContext {withMockSendEvent, getNextNonEmptyBundle, bpmRef, signalRef}
   killThread threadId
+  return result
 
 makeDefaultConfig :: IO (CoreConfig String)
 makeDefaultConfig = do
@@ -62,19 +70,27 @@ spec :: Spec
 spec = do
   describe "runBackend" $ do
     describe "when invoking sendEvents" $ do
-      it "should call sendEvents with the right clockVal each frame" $ do
+      it "should call sendEvents with the right payloads each frame" $ do
         config <- makeDefaultConfig
-        withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-          withMockSendEvent $ \clockVal _ _ -> clockVal `shouldBe` (0/24)
-          sequence_ $ replicate 23 $ withMockSendEvent $ \_ _ _ -> return ()
-          withMockSendEvent $ \clockVal _ _ -> clockVal `shouldBe` (24/24)
+        withMockBackend config $ \MkMockContext {getNextNonEmptyBundle} -> do
+          let bundlePayloadsShouldBe expectedResult = getNextNonEmptyBundle
+                & (fmap . fmap) snd
+                & (=<<) (`shouldBe` expectedResult)
+          bundlePayloadsShouldBe ["hello"]
+          bundlePayloadsShouldBe ["hello"]
+          return ()
 
-      it "should call sendEvents with the right events each frame" $ do
+      it "should call sendEvents with a timestamp delay of less than 2ms" $ do
         config <- makeDefaultConfig
-        withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-          withMockSendEvent $ \_ _ events -> events `shouldBe` [ MkEvent {interval=(0, 1), payload="hello"} ]
-          sequence_ $ replicate 23 $ withMockSendEvent $ \_ _ events -> events `shouldBe` []
-          withMockSendEvent $ \_ _ events -> events `shouldBe` [ MkEvent {interval=(1, 1), payload="hello"} ]
+        withMockBackend config $ \MkMockContext {getNextNonEmptyBundle} -> do
+          let getLatency = do
+                [stamp] <- getNextNonEmptyBundle
+                  & (fmap . fmap) fst
+                now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+                return (abs (now - stamp))
+          getLatency >>= (`shouldBeLessThan` (2 * 10^(9 - 3)))
+          getLatency >>= (`shouldBeLessThan` (2 * 10^(9 - 3)))
+          getLatency >>= (`shouldBeLessThan` (2 * 10^(9 - 3)))
 
     describe "timing" $ do
       let
@@ -84,7 +100,7 @@ spec = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ _ _ -> modifyMVar_ logRef $ \xs -> do
+            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> modifyMVar_ logRef $ \xs -> do
               x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
               return (x:xs)
           readMVar logRef
@@ -119,7 +135,7 @@ spec = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ _ _ -> modifyMVar_ logRef $ \xs -> do
+            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> modifyMVar_ logRef $ \xs -> do
               x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
               return (x:xs)
           times <- readMVar logRef
