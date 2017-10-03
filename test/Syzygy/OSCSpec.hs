@@ -88,16 +88,16 @@ spec = do
           error = zipWith (\x y -> abs(x - y)) (repeat expectedTimeDifference) deltas
         mean error `shouldBeLessThan` 0.5e-6
 
-    it "sends events with timestamps accurate to 2ms" $ do
+    it "sends events with timestamps with less than 2ms of latency" $ do
       withMockOSC signal bpm $ \MkTestContext{getTimestamp} -> do
         timestamp <- getTimestamp
         now <- utcToTimestamp <$> Time.getCurrentTime
-        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
+        (abs $ now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
 
         timestamp <- getTimestamp
         now <- utcToTimestamp <$> Time.getCurrentTime
-        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
+        (abs $ now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
 
         timestamp <- getTimestamp
         now <- utcToTimestamp <$> Time.getCurrentTime
-        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
+        (abs $ now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
