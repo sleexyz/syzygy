@@ -4,7 +4,8 @@ import Control.Concurrent
 import TestUtils (shouldBeLessThan, mean)
 import Data.Function ((&))
 import Test.Hspec
-import Vivid.OSC (OSCBundle(..), decodeOSCBundle, OSCDatum(OSC_S), OSC(..), Timestamp(..) )
+import Vivid.OSC (OSCBundle(..), decodeOSCBundle, OSCDatum(OSC_S), OSC(..), Timestamp(..), utcToTimestamp)
+import qualified Data.Time as Time
 import Control.Monad
 import qualified Network.Socket as Network
 import qualified Network.Socket.ByteString as NetworkBS
@@ -20,6 +21,7 @@ diffTimestamp (Timestamp x) (Timestamp y) = x - y
 data TestContext = MkTestContext
   { receiveOSCBundle :: forall a. (OSCBundle -> IO a) -> IO a
   , getMessage :: IO OSC
+  , getTimestamp :: IO Timestamp
   }
 
 withMockOSCServer :: (OSCBundle -> IO ()) -> (Network.PortNumber -> IO a)  -> IO a
@@ -49,7 +51,8 @@ withMockOSC defaultSignal bpm continuation = do
           bundleVal <- takeMVar bundleChan
           bundleHandler bundleVal
     let getMessage = receiveOSCBundle $ \(OSCBundle _ [Right message]) -> return message
-    result <- continuation MkTestContext{receiveOSCBundle, getMessage}
+    let getTimestamp = receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp
+    result <- continuation MkTestContext{receiveOSCBundle, getMessage, getTimestamp}
     killThread clientThread
     return result
 
@@ -73,9 +76,9 @@ spec = do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
-    it "sends events at the right tempo, with an average jitter of less than 200ms" $ do
-      withMockOSC signal bpm $ \MkTestContext{receiveOSCBundle} -> do
-        deltas <- (sequence $ replicate 12 $ receiveOSCBundle $ \(OSCBundle timestamp _) -> return timestamp)
+    it "sends events at the right tempo, with an average jitter of less than 500ns" $ do
+      withMockOSC signal bpm $ \MkTestContext{getTimestamp} -> do
+        deltas <- (sequence $ replicate 12 $ getTimestamp)
           & fmap (\timestamps -> zipWith diffTimestamp (tail timestamps) timestamps)
         let
           expectedTimeDifference :: Double
@@ -83,4 +86,18 @@ spec = do
         let
           error :: [Double]
           error = zipWith (\x y -> abs(x - y)) (repeat expectedTimeDifference) deltas
-        mean error `shouldBeLessThan` 300e-9
+        mean error `shouldBeLessThan` 0.5e-6
+
+    it "sends events with timestamps accurate to 2ms" $ do
+      withMockOSC signal bpm $ \MkTestContext{getTimestamp} -> do
+        timestamp <- getTimestamp
+        now <- utcToTimestamp <$> Time.getCurrentTime
+        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
+
+        timestamp <- getTimestamp
+        now <- utcToTimestamp <$> Time.getCurrentTime
+        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3
+
+        timestamp <- getTimestamp
+        now <- utcToTimestamp <$> Time.getCurrentTime
+        (now `diffTimestamp` timestamp) `shouldBeLessThan` 2e-3

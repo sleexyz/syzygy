@@ -21,6 +21,7 @@ data OSCConfig = MkOSCConfig
   , beatRef :: MVar Rational
   }
 
+-- | nanoseconds between 1970-01-01 and 1900-01-01
 epochOffset :: Integer
 epochOffset = 2208988800 * 10^9
 
@@ -66,8 +67,8 @@ backend = MkBackend {toCoreConfig, makeEnv}
 
 main :: IO ()
 main = do
-  bpmRef <-  newMVar 60
-  signalRef <- newMVar mempty
+  bpmRef <-  newMVar 240
+  signalRef <- newMVar $ fast 16 $ embed [OSC.OSC "/play2" [OSC.OSC_S "s", OSC.OSC_S "bd"]]
   beatRef <- newMVar 0
   let portNumber = 57120
   let config = MkOSCConfig { bpmRef, signalRef, beatRef, portNumber }
