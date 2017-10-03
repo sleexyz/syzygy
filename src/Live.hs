@@ -74,6 +74,6 @@ staccato sig = sig & (mapInterval . mapDur) (/4)
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
   const (embed 60)
-  with switch [ fmap (+(x)) | x <- [-0, 3, 7, 10, 14, 15, 17, 26, 27, 10, 14, 7, 3]]
-  fast 8
-  tt (1/4)  $ with switch [fmap (subtract x) | x <- [0, 5, 2, 7]]
+  with switch [ fmap (+(x)) | x <- [-0, 4, 7, 11, 16, 18, 19, 21, 23]]
+  fast 6
+  tt 2 $ with switch [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]
