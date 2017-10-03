@@ -60,7 +60,7 @@ backend = MkBackend {toCoreConfig, makeEnv}
 
 main :: IO ()
 main = do
-  bpmRef <-  newMVar 240
+  bpmRef <-  newMVar 120
   signalRef <- newMVar $ fast 16 $ embed [OSC.OSC "/play2" [OSC.OSC_S "s", OSC.OSC_S "bd"]]
   beatRef <- newMVar 0
   let portNumber = 57120

@@ -44,7 +44,7 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
     let
       timestampedEvents :: [(Integer, a)]
-      timestampedEvents = signal (pruneSignal sig) (beat, beatOffset)
+      timestampedEvents = signal sig (beat, beatOffset)
           & fmap (makeTimestamp bpm beat clock)
     sendEvents timestampedEvents
     waitTil (clock + clockOffset)

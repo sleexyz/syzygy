@@ -71,11 +71,11 @@ makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ 
   sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
   sendEvents events = do
     let
-      extractMIDIEvents :: (Integer, MIDIEvent.Data) -> MIDIEvent.T
-      extractMIDIEvents (time, payload) = stamp address queue time payload
+      stampEvent :: (Integer, MIDIEvent.Data) -> MIDIEvent.T
+      stampEvent (time, payload) = stamp address queue time payload
     let
       notes :: [MIDIEvent.T]
-      notes =  extractMIDIEvents <$> events
+      notes =  stampEvent <$> events
     traverse (MIDIEvent.output h) notes
     MIDIEvent.drainOutput h
     return ()

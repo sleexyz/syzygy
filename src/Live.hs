@@ -7,6 +7,7 @@ import Data.Word (Word8)
 import Data.Function ((&))
 import Prelude
 import Data.String
+import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -17,8 +18,8 @@ setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
-  let midiPortName = "UM-ONE MIDI 1"
-  -- let midiPortName = "VirMIDI 2-0"
+  -- let midiPortName = "UM-ONE MIDI 1"
+  let midiPortName = "VirMIDI 2-0"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
   _ <- forkIO $ runBackend backend config
   return config
@@ -29,7 +30,16 @@ main = do
   modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
-    & fmap makeNoteOnData
+    & makeNote
+
+makeNote :: Signal Word8 -> Signal MIDIEvent.Data
+makeNote sig = MkSignal $ \query -> do
+  MkEvent{interval=(start, dur), payload} <- signal sig query
+  event <-
+    [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
+    , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
+    ]
+  return event
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
