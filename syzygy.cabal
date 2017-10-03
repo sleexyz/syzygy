@@ -36,8 +36,8 @@ library
       Live
       Syzygy.Core
       Syzygy.MIDI
+      Syzygy.OSC
       Syzygy.Signal
-      Syzygy.SuperDirt
   other-modules:
       Paths_syzygy
   default-language: Haskell2010
@@ -62,8 +62,8 @@ executable syzygy-live
       Live
       Syzygy.Core
       Syzygy.MIDI
+      Syzygy.OSC
       Syzygy.Signal
-      Syzygy.SuperDirt
   default-language: Haskell2010
 
 test-suite syzygy-test
@@ -91,7 +91,7 @@ test-suite syzygy-test
   other-modules:
       Syzygy.CoreSpec
       Syzygy.MIDISpec
+      Syzygy.OSCSpec
       Syzygy.SignalSpec
-      Syzygy.SuperDirtSpec
       TestUtils
   default-language: Haskell2010
