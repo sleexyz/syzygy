@@ -1,4 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
 module Syzygy.MIDISpec where
 
 import Control.Concurrent
@@ -36,36 +35,29 @@ withMockMIDIServer :: MIDIConfig -> (TestContext -> IO a) -> IO a
 withMockMIDIServer config continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
   (midiEventRef :: MVar MIDIEvent.T) <- newEmptyMVar
-
   listenerThread <- forkIO $ do
     let
       readyComputation :: IO ()
       readyComputation = putMVar isReadySem ()
-
+    let
       handleEvent :: MIDIEvent.T -> IO ()
       handleEvent = (\event -> putMVar midiEventRef event)
-
     listen "Syzygy test client" "Syzygy test port" readyComputation handleEvent
-
   let
     waitForReadyComputation :: IO ()
     waitForReadyComputation = takeMVar isReadySem
-
   waitForReadyComputation
   clientThread <- forkIO $ do
     runBackend backend config
-
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do
       event <- takeMVar midiEventRef
       handleEvent event
-
+  let
     getNoteEvent :: IO MIDIEvent.T
     getNoteEvent = doUntil isNoteEvent (onEvent return)
-
   result <- continuation MkTestContext{onEvent, getNoteEvent}
-
   killThread listenerThread
   killThread clientThread
   return result

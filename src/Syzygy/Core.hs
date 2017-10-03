@@ -30,7 +30,7 @@ runBackend :: forall a config. Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig {bpmRef, signalRef, beatRef} = toCoreConfig config
   MkEnv{sendEvents} <- makeEnv config
-  clockRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
