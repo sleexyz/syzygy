@@ -27,7 +27,9 @@ main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
   modifyMVar_ bpmRef $ const . return $ 160
-  modifyMVar_ signalRef $ const . return $ sigMod mempty
+  modifyMVar_ signalRef $ const . return $ mempty
+    & sigMod
+    & fmap makeNoteOnData
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
