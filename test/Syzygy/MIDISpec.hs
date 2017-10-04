@@ -1,4 +1,3 @@
-{-# LANGUAGE ViewPatterns #-}
 module Syzygy.MIDISpec where
 
 import Control.Concurrent
@@ -36,36 +35,29 @@ withMockMIDIServer :: MIDIConfig -> (TestContext -> IO a) -> IO a
 withMockMIDIServer config continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
   (midiEventRef :: MVar MIDIEvent.T) <- newEmptyMVar
-
   listenerThread <- forkIO $ do
     let
       readyComputation :: IO ()
       readyComputation = putMVar isReadySem ()
-
+    let
       handleEvent :: MIDIEvent.T -> IO ()
       handleEvent = (\event -> putMVar midiEventRef event)
-
     listen "Syzygy test client" "Syzygy test port" readyComputation handleEvent
-
   let
     waitForReadyComputation :: IO ()
     waitForReadyComputation = takeMVar isReadySem
-
   waitForReadyComputation
   clientThread <- forkIO $ do
     runBackend backend config
-
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do
       event <- takeMVar midiEventRef
       handleEvent event
-
+  let
     getNoteEvent :: IO MIDIEvent.T
     getNoteEvent = doUntil isNoteEvent (onEvent return)
-
   result <- continuation MkTestContext{onEvent, getNoteEvent}
-
   killThread listenerThread
   killThread clientThread
   return result
@@ -89,7 +81,12 @@ isNoteEvent event = case MIDIEvent.body event of
 
 makeDefaultConfig :: IO MIDIConfig
 makeDefaultConfig = do
-  signalRef <- newMVar $ switch [embed 100, mempty, embed 200, mempty] & fast 2
+  signalRef <- newMVar $ switch
+    [ embed (makeNoteOnData 100)
+    , embed (makeNoteOffData 100)
+    , embed (makeNoteOnData 200)
+    , embed (makeNoteOffData 200)
+    ]
   beatRef <- newMVar 0
   bpmRef <- newMVar 240
   let midiPortName = "Syzygy test port"
@@ -118,7 +115,7 @@ spec = do
         getPitch event `shouldBe` 200
         getNoteEvTag event `shouldBe` MIDIEvent.NoteOff
 
-    it "sends MIDI events at the right tempo, with jitter of less than 10ns" $ do
+    it "sends MIDI events at the right tempo, with jitter of less than 20ns" $ do
       config <- makeDefaultConfig
       withMockMIDIServer config $ \MkTestContext{getNoteEvent} -> do
         timeDifferences <- sequence [getNoteEvent | _ <- [1..10]]
@@ -126,10 +123,10 @@ spec = do
           & fmap (\times -> zipWith (-) (tail times) times)
         let
           expectedTimeDifference :: Integer
-          expectedTimeDifference = (10^9) `div` (240 `div` 60) `div` 2
+          expectedTimeDifference = (10^9) `div` (240 `div` 60)
         let
           error :: [Double]
           error = timeDifferences
               & fmap (\delta -> abs (expectedTimeDifference - delta))
               & fmap fromInteger
-        mean error `shouldBeLessThan` 10
+        mean error `shouldBeLessThan` 20

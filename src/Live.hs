@@ -7,6 +7,7 @@ import Data.Word (Word8)
 import Data.Function ((&))
 import Prelude
 import Data.String
+import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 
 import Syzygy.Core
 import Syzygy.Signal
@@ -17,8 +18,8 @@ setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
-  let midiPortName = "UM-ONE MIDI 1"
-  -- let midiPortName = "VirMIDI 2-0"
+  -- let midiPortName = "UM-ONE MIDI 1"
+  let midiPortName = "VirMIDI 2-0"
   let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
   _ <- forkIO $ runBackend backend config
   return config
@@ -27,7 +28,18 @@ main :: IO ()
 main = do
   MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
   modifyMVar_ bpmRef $ const . return $ 160
-  modifyMVar_ signalRef $ const . return $ sigMod mempty
+  modifyMVar_ signalRef $ const . return $ mempty
+    & sigMod
+    & makeNote
+
+makeNote :: Signal Word8 -> Signal MIDIEvent.Data
+makeNote sig = MkSignal $ \query -> do
+  MkEvent{interval=(start, dur), payload} <- signal sig query
+  event <-
+    [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
+    , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
+    ]
+  return event
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
@@ -62,6 +74,6 @@ staccato sig = sig & (mapInterval . mapDur) (/4)
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
   const (embed 60)
-  with switch [ fmap (+(x)) | x <- [-0, 3, 7, 10, 14, 15, 17, 26, 27, 10, 14, 7, 3]]
-  fast 8
-  tt (1/4)  $ with switch [fmap (subtract x) | x <- [0, 5, 2, 7]]
+  with switch [ fmap (+(x)) | x <- [-0, 4, 7, 11, 16, 18, 19, 21, 23]]
+  fast 6
+  tt 2 $ with switch [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]

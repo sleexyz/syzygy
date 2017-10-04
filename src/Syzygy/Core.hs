@@ -1,5 +1,6 @@
 module Syzygy.Core where
 
+import Data.Function ((&))
 import Control.Concurrent
 import Control.Monad
 import qualified Foreign.Store as ForeignStore
@@ -19,17 +20,17 @@ data Backend config a = MkBackend
   }
 
 newtype Env a = MkEnv
-  { sendEvents :: Rational -> Integer -> [Event a] -> IO ()
+  { sendEvents :: [(Integer, a)] -> IO ()
   }
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
 
-runBackend :: Backend config a -> config -> IO ()
+runBackend :: forall a config. Backend config a -> config -> IO ()
 runBackend MkBackend {toCoreConfig, makeEnv} config = do
   let MkCoreConfig {bpmRef, signalRef, beatRef} = toCoreConfig config
   MkEnv{sendEvents} <- makeEnv config
-  clockRef <-  newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
+  clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
     sig <- readMVar signalRef
@@ -41,8 +42,18 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
       clockOffset = ((10^9 * 60) `div` fromIntegral bpm `div` _samplesPerBeat)
     beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
-    sendEvents beat clock $ signal (pruneSignal sig) (beat, beatOffset)
+    let
+      timestampedEvents :: [(Integer, a)]
+      timestampedEvents = signal sig (beat, beatOffset)
+          & fmap (makeTimestamp bpm beat clock)
+    sendEvents timestampedEvents
     waitTil (clock + clockOffset)
+
+makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)
+makeTimestamp bpm beatStart clock MkEvent{interval=(eventStart, _), payload} = (clock + offset, payload)
+  where
+    offset :: Integer
+    offset = floor $ (10^9 * 60) * (eventStart - beatStart) / fromIntegral bpm
 
 -- | waits until t nanoseconds since UNIX epoch
 waitTil :: Integer -> IO ()

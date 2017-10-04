@@ -50,14 +50,13 @@ connectTo expectedPortName continuation = do
 data MIDIConfig = MkMIDIConfig
   { midiPortName :: String
   , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal Word8)
+  , signalRef :: MVar (Signal MIDIEvent.Data)
   , beatRef :: MVar Rational
   }
 
-stamp :: Queue.T -> Integer -> MIDIEvent.T -> MIDIEvent.T
-stamp queue nanosecs event = event
-  {
-    MIDIEvent.queue = queue
+stamp :: Addr.T -> Queue.T -> Integer -> MIDIEvent.Data -> MIDIEvent.T
+stamp address queue nanosecs body = (MIDIEvent.simple address body)
+  { MIDIEvent.queue = queue
   , MIDIEvent.time = ALSATime.consAbs $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
   }
 
@@ -67,29 +66,16 @@ makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (
 makeNoteOffData :: Word8 -> MIDIEvent.Data
 makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
 
-noteOn :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
-noteOn address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOnData pitch)
-
-noteOff :: Addr.T ->  Queue.T -> Integer -> Word8 -> MIDIEvent.T
-noteOff address queue delay pitch = stamp queue delay $ MIDIEvent.simple address (makeNoteOffData pitch)
-
-makeMIDIEnv' :: MIDIConfig -> (Env Word8 -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midiPortName $ \h address queue -> let
-  sendEvents :: Rational -> Integer -> [Event Word8] -> IO ()
-  sendEvents beat clock events = do
-    bpm <- readMVar bpmRef
+makeMIDIEnv' :: MIDIConfig -> (Env MIDIEvent.Data -> IO ()) -> IO ()
+makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
+  sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
+  sendEvents events = do
     let
-      beatToClock :: Rational -> Integer
-      beatToClock b = clock + floor ((10^9 * 60) * (b - beat) / fromIntegral bpm)
-    let
-      extractMIDIEvents :: Event Word8 -> [MIDIEvent.T]
-      extractMIDIEvents MkEvent {interval=(eventStart, dur), payload} =
-          [ noteOn address queue (beatToClock eventStart) payload
-          , noteOff address queue (beatToClock (eventStart + dur)) payload
-          ]
+      stampEvent :: (Integer, MIDIEvent.Data) -> MIDIEvent.T
+      stampEvent (time, payload) = stamp address queue time payload
     let
       notes :: [MIDIEvent.T]
-      notes =  events >>= extractMIDIEvents
+      notes =  stampEvent <$> events
     traverse (MIDIEvent.output h) notes
     MIDIEvent.drainOutput h
     return ()
@@ -99,9 +85,9 @@ makeMIDIEnv' MkMIDIConfig { midiPortName, bpmRef } continuation = connectTo midi
     Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
     continuation MkEnv {sendEvents}
 
-makeMIDIEnv :: MIDIConfig -> IO (Env Word8)
+makeMIDIEnv :: MIDIConfig -> IO (Env MIDIEvent.Data)
 makeMIDIEnv config = do
-  (envRef :: MVar (Maybe (Env Word8))) <- newEmptyMVar
+  (envRef :: MVar (Maybe (Env MIDIEvent.Data))) <- newEmptyMVar
   void $ forkIO $ do
     makeMIDIEnv' config $ \env -> do
       putMVar envRef $ Just env
@@ -112,12 +98,12 @@ makeMIDIEnv config = do
     Just env -> return env
     Nothing -> error "Device not found"
 
-backend :: Backend MIDIConfig Word8
+backend :: Backend MIDIConfig MIDIEvent.Data
 backend = MkBackend {toCoreConfig, makeEnv}
   where
-    toCoreConfig :: MIDIConfig -> CoreConfig Word8
+    toCoreConfig :: MIDIConfig -> CoreConfig MIDIEvent.Data
     toCoreConfig MkMIDIConfig{bpmRef, signalRef, beatRef} =
       MkCoreConfig{bpmRef, signalRef, beatRef}
 
-    makeEnv :: MIDIConfig -> IO (Env Word8)
+    makeEnv :: MIDIConfig -> IO (Env MIDIEvent.Data)
     makeEnv = makeMIDIEnv
