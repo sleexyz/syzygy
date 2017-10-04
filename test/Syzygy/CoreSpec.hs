@@ -96,14 +96,11 @@ spec = do
       let
         getTimes :: Int -> Int -> IO [Integer]
         getTimes bpm numBeats = do
-          logRef <- newMVar []
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> modifyMVar_ logRef $ \xs -> do
-              x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-              return (x:xs)
-          readMVar logRef
+            sequence $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> do
+              Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
 
       describe "clock skew" $ do
         let
@@ -113,7 +110,7 @@ spec = do
             times <- getTimes bpm numBeats
             let
               timeElapsed :: Integer
-              timeElapsed = head times - now
+              timeElapsed = head (reverse times) - now
             let
               expectedTimeElapsed :: Integer
               expectedTimeElapsed = (10^9) * fromIntegral numBeats * 60 `div` fromIntegral bpm
@@ -131,17 +128,14 @@ spec = do
       describe "clock jitter" $ let
         calculateJitter :: Int -> Int -> IO Double
         calculateJitter bpm numBeats = do
-          logRef <- newMVar []
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
-          withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence_ $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> modifyMVar_ logRef $ \xs -> do
-              x <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
-              return (x:xs)
-          times <- readMVar logRef
+          times <- withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
+            sequence $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> do
+              Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
           let
             delays :: [Integer]
-            delays = tail $ zipWith (-) (undefined:times) times
+            delays = tail $ zipWith (-) times (undefined:times)
           let
             expectedDelays :: [Integer]
             expectedDelays = repeat $ 10^9 * 60 `div` fromIntegral bpm `div` fromIntegral _samplesPerBeat
