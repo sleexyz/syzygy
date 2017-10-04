@@ -50,15 +50,10 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)
-makeTimestamp bpm beatStart clock MkEvent{interval=(eventStart, _), payload} =
-  let
+makeTimestamp bpm beatStart clock MkEvent{interval=(eventStart, _), payload} = (clock + offset, payload)
+  where
     offset :: Integer
     offset = floor $ (10^9 * 60) * (eventStart - beatStart) / fromIntegral bpm
-
-    time :: Integer
-    time = clock + offset
-  in
-    (time, payload)
 
 -- | waits until t nanoseconds since UNIX epoch
 waitTil :: Integer -> IO ()
