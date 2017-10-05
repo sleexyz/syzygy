@@ -11,18 +11,15 @@ import Syzygy.Core
 import Syzygy.Signal
 import TestUtils (shouldBeLessThan, mean, doUntil)
 
-makeMockBackend :: Chan [(Integer, String)] -> MVar () ->  Backend (CoreConfig String) String
-makeMockBackend spyChan sem = MkBackend {toCoreConfig, makeEnv}
+makeMockBackend :: Chan [(Integer, String)] -> MVar () ->  Backend () String
+makeMockBackend spyChan sem = MkBackend {makeEnv}
   where
-    toCoreConfig :: CoreConfig String -> CoreConfig String
-    toCoreConfig = id
-
     sendEvents :: [(Integer, String)] -> IO ()
     sendEvents events = do
       writeChan spyChan events
       takeMVar sem
 
-    makeEnv :: CoreConfig String -> IO (Env String)
+    makeEnv :: () -> IO (Env String)
     makeEnv _ = return MkEnv { sendEvents }
 
 data MockContext = MkMockContext
@@ -37,11 +34,14 @@ withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
   spyChan <- newChan
   (semaphore :: MVar ()) <- newEmptyMVar
   let
-    mockBackend :: Backend (CoreConfig String) String
+    mockBackend :: Backend () String
     mockBackend = makeMockBackend spyChan semaphore
   let
-    mockConfig :: CoreConfig String
-    mockConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
+    mockConfig :: ()
+    mockConfig = ()
+  let
+    mockCoreConfig :: CoreConfig String
+    mockCoreConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
   let
     withMockSendEvent :: forall a. ([(Integer, String)] -> IO a) -> IO a
     withMockSendEvent mockSendEvents = do
@@ -54,7 +54,7 @@ withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
     getNextNonEmptyBundle = withMockSendEvent return
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runBackend mockBackend mockConfig
+  threadId <- forkIO $ runBackend mockBackend mockConfig mockCoreConfig
   result <- cont MkMockContext {withMockSendEvent, getNextNonEmptyBundle, bpmRef, signalRef}
   killThread threadId
   return result

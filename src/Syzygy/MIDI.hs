@@ -17,7 +17,6 @@ import qualified Sound.ALSA.Sequencer.Queue as Queue
 import qualified System.Clock as Clock
 
 import Syzygy.Core
-import Syzygy.Signal
 
 getAddress :: (SndSeq.OpenMode mode) => SndSeq.T mode -> String -> (Addr.T -> IO ()) -> IO ()
 getAddress h expectedPortName continuation = do
@@ -49,9 +48,6 @@ connectTo expectedPortName continuation = do
 
 data MIDIConfig = MkMIDIConfig
   { midiPortName :: String
-  , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal MIDIEvent.Data)
-  , beatRef :: MVar Rational
   }
 
 stamp :: Addr.T -> Queue.T -> Integer -> MIDIEvent.Data -> MIDIEvent.T
@@ -99,11 +95,7 @@ makeMIDIEnv config = do
     Nothing -> error "Device not found"
 
 backend :: Backend MIDIConfig MIDIEvent.Data
-backend = MkBackend {toCoreConfig, makeEnv}
+backend = MkBackend {makeEnv}
   where
-    toCoreConfig :: MIDIConfig -> CoreConfig MIDIEvent.Data
-    toCoreConfig MkMIDIConfig{bpmRef, signalRef, beatRef} =
-      MkCoreConfig{bpmRef, signalRef, beatRef}
-
     makeEnv :: MIDIConfig -> IO (Env MIDIEvent.Data)
     makeEnv = makeMIDIEnv

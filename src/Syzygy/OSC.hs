@@ -18,9 +18,6 @@ toOSCBundle (timeNs, message) = OSC.encodeOSCBundle $ OSC.OSCBundle timestamp (R
 
 data OSCConfig = MkOSCConfig
   { portNumber :: Network.PortNumber
-  , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal [OSC.OSC])
-  , beatRef :: MVar Rational
   }
 
 -- | nanoseconds between 1970-01-01 and 1900-01-01
@@ -49,12 +46,8 @@ makeOSCEnv MkOSCConfig{portNumber} = do
   return MkEnv { sendEvents }
 
 backend :: Backend OSCConfig [OSC.OSC]
-backend = MkBackend {toCoreConfig, makeEnv}
+backend = MkBackend {makeEnv}
   where
-    toCoreConfig :: OSCConfig -> CoreConfig [OSC.OSC]
-    toCoreConfig MkOSCConfig {bpmRef, signalRef, beatRef} =
-      MkCoreConfig {bpmRef, signalRef, beatRef}
-
     makeEnv :: OSCConfig -> IO (Env [OSC.OSC])
     makeEnv = makeOSCEnv
 
@@ -64,5 +57,6 @@ main = do
   signalRef <- newMVar $ fast 16 $ embed [OSC.OSC "/play2" [OSC.OSC_S "s", OSC.OSC_S "bd"]]
   beatRef <- newMVar 0
   let portNumber = 57120
-  let config = MkOSCConfig { bpmRef, signalRef, beatRef, portNumber }
-  runBackend backend config
+  let config = MkOSCConfig { portNumber }
+  let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
+  runBackend backend config coreConfig

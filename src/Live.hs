@@ -1,45 +1,57 @@
 {-# LANGUAGE ParallelListComp #-}
+{-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RebindableSyntax #-}
 module Live where
 
+import Data.Bifunctor
 import Control.Concurrent
 import Data.Word (Word8)
 import Data.Function ((&))
 import Prelude
 import Data.String
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
+import qualified Vivid.OSC as OSC
 
 import Syzygy.Core
 import Syzygy.Signal
-import Syzygy.MIDI
+import qualified Syzygy.MIDI as M
+import qualified Syzygy.OSC as O
 
-setup :: IO MIDIConfig
+setup :: IO (CoreConfig (Either MIDIEvent.Data [OSC.OSC]))
 setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
   -- let midiPortName = "UM-ONE MIDI 1"
   let midiPortName = "VirMIDI 2-0"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
-  _ <- forkIO $ runBackend backend config
-  return config
+  let portNumber = 57120
+  let config = (M.MkMIDIConfig { midiPortName }, O.MkOSCConfig {portNumber})
+  let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
+  _ <- forkIO $ runBackend (combineBackends M.backend O.backend) config coreConfig
+  return coreConfig
 
 main :: IO ()
 main = do
-  MkMIDIConfig {signalRef, bpmRef} <- runOnce setup
+  MkCoreConfig {signalRef, bpmRef} <- runOnce setup
   modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
-    & makeNote
+    & mapLeftEvent makeNoteEvents
 
-makeNote :: Signal Word8 -> Signal MIDIEvent.Data
-makeNote sig = MkSignal $ \query -> do
-  MkEvent{interval=(start, dur), payload} <- signal sig query
-  event <-
-    [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
-    , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
-    ]
-  return event
+makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
+makeNoteEvents MkEvent{interval=(start, dur), payload} =
+  [ MkEvent {interval=(start, 0), payload=M.makeNoteOnData payload}
+  , MkEvent {interval=(start + dur, 0), payload=M.makeNoteOffData payload}
+  ]
+
+-- TODO: use lenses
+mapLeftEvent :: (Event a -> [Event a']) -> Signal (Either a b) -> Signal (Either a' b)
+mapLeftEvent f sig = MkSignal $ \query -> do
+  event <- signal sig query
+  newEvent <- event & \case
+    MkEvent{interval,payload=Left payload} -> f MkEvent{interval,payload} & (fmap . fmap) Left
+    MkEvent{interval, payload=Right payload} -> return MkEvent{interval, payload=Right payload}
+  return newEvent
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
@@ -62,18 +74,25 @@ filterSig :: (a -> Bool) -> Signal a -> Signal a
 filterSig pred sig = MkSignal $ \query -> signal sig query
   & filter (\MkEvent{payload}-> pred payload)
 
-lpf :: Word8 -> Signal Word8 -> Signal Word8
-lpf i = filterSig $ (<i)
-
-hpf :: Word8 -> Signal Word8 -> Signal Word8
-hpf i = filterSig $ (>i)
-
 staccato :: Signal a -> Signal a
 staccato sig = sig & (mapInterval . mapDur) (/4)
 
-sigMod :: Signal Word8 -> Signal Word8
+legato:: Signal a -> Signal a
+legato sig = sig & (mapInterval . mapDur) (*1.5)
+
+s :: [Signal a -> Signal a] -> Signal a -> Signal a
+s = with switch
+
+ml :: (Functor f, Bifunctor g) => (a -> a) -> f (g a b) -> f (g a b)
+ml = fmap . first
+
+mr :: (Functor f, Bifunctor g) => (b -> b) -> f (g a b) -> f (g a b)
+mr = fmap . second
+
+sigMod :: Signal (Either Word8 [OSC.OSC]) -> Signal (Either Word8 [OSC.OSC])
 sigMod = let (>>) = (flip (.)) in do
-  const (embed 60)
-  with switch [ fmap (+(x)) | x <- [-0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  fast 6
-  tt 2 $ with switch [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]
+  const (embed $ Left 48)
+  legato
+  overlay $ do
+    const (embed $ Right $ return $ OSC.OSC "/play2" [OSC.OSC_S "s", OSC.OSC_S "bd", OSC.OSC_S "speed", OSC.OSC_D 0.25])
+    shift (-0.25)
