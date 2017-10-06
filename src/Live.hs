@@ -52,6 +52,16 @@ mapLeftEvent f sig = MkSignal $ \query -> do
     MkEvent{interval, payload=Right payload} -> return MkEvent{interval, payload=Right payload}
   return newEvent
 
+splitSig :: forall a b. Signal (Either a b) -> (Signal a, Signal b)
+splitSig sig = (leftSig, rightSig)
+  where
+    leftSig = MkSignal $ \query -> do
+      MkEvent{interval, payload=Left payload} <- signal sig query
+      return MkEvent{interval, payload}
+    rightSig = MkSignal $ \query -> do
+      MkEvent{interval, payload=Right payload} <- signal sig query
+      return MkEvent{interval, payload}
+
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
 
