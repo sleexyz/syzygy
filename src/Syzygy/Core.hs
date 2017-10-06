@@ -1,5 +1,6 @@
 module Syzygy.Core where
 
+import Data.Profunctor (lmap)
 import Data.Function ((&))
 import Control.Concurrent
 import Control.Monad
@@ -14,20 +15,14 @@ data CoreConfig a = MkCoreConfig
   , beatRef :: MVar Rational
   }
 
-data Backend config a = MkBackend
-  { makeEnv :: config -> IO (Env a)
-  }
+type Backend a = [(Integer, a)] -> IO ()
 
-newtype Env a = MkEnv
-  { sendEvents :: [(Integer, a)] -> IO ()
-  }
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
 
-runBackend :: forall a config. Backend config a -> config -> CoreConfig a -> IO ()
-runBackend MkBackend {makeEnv} config MkCoreConfig{bpmRef, signalRef, beatRef} = do
-  MkEnv{sendEvents} <- makeEnv config
+runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
+runBackend sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
@@ -60,16 +55,8 @@ waitTil t = do
   let timeToWait = t - now
   threadDelay (fromIntegral $ (timeToWait `div` 1000))
 
-extendBackend :: forall a b config. (a -> b) -> Backend config b -> Backend config a
-extendBackend f MkBackend{makeEnv} = MkBackend {makeEnv = newMakeEnv}
-  where
-    newMakeEnv :: config -> IO (Env a)
-    newMakeEnv c = do
-      MkEnv{sendEvents} <- makeEnv c
-      let
-        newSendEvents :: [(Integer, a)] -> IO ()
-        newSendEvents events = sendEvents ((fmap . fmap) f events)
-      return MkEnv {sendEvents=newSendEvents}
+extendBackend :: forall a b. (a -> b) -> Backend b -> Backend a
+extendBackend = (lmap . fmap . fmap)
 
 distribute :: forall a b x. [(x, Either a b)] -> ([(x, a)], [(x, b)])
 distribute =
@@ -79,20 +66,11 @@ distribute =
   in
     foldr f ([], [])
 
-combineBackends :: forall a configA b configB. Backend configA a -> Backend configB b -> Backend (configA, configB) (Either a b)
-combineBackends MkBackend{makeEnv=makeEnvA} MkBackend{makeEnv=makeEnvB} = MkBackend {makeEnv}
-  where
-    makeEnv :: (configA, configB) -> IO (Env (Either a b))
-    makeEnv (conA, conB) = do
-      MkEnv{sendEvents=sendEventsA} <- makeEnvA conA
-      MkEnv{sendEvents=sendEventsB} <- makeEnvB conB
-      let
-        sendEvents :: [(Integer, Either a b)] -> IO ()
-        sendEvents events = do
-          let (as, bs) = distribute events
-          sendEventsA as
-          sendEventsB bs
-      return MkEnv {sendEvents}
+combineBackends :: forall a b. Backend a -> Backend b -> Backend (Either a b)
+combineBackends sendEventsA  sendEventsB events = do
+  let (as, bs) = distribute events
+  sendEventsA as
+  sendEventsB bs
 
 runOnce :: IO a -> IO a
 runOnce computation = do

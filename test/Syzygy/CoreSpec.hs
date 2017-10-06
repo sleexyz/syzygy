@@ -11,51 +11,27 @@ import Syzygy.Core
 import Syzygy.Signal
 import TestUtils (shouldBeLessThan, mean, doUntil)
 
-makeMockBackend :: Chan [(Integer, String)] -> MVar () ->  Backend () String
-makeMockBackend spyChan sem = MkBackend {makeEnv}
-  where
-    sendEvents :: [(Integer, String)] -> IO ()
-    sendEvents events = do
-      writeChan spyChan events
-      takeMVar sem
-
-    makeEnv :: () -> IO (Env String)
-    makeEnv _ = return MkEnv { sendEvents }
-
 data MockContext = MkMockContext
-  { withMockSendEvent :: forall a. ([ (Integer, String) ] -> IO a) -> IO a
+  { getEvents :: IO [(Integer, String )]
   , getNextNonEmptyBundle :: IO [(Integer, String)]
-  , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal String)
   }
 
-withMockBackend :: forall a. CoreConfig String -> (MockContext -> IO a) -> IO a
-withMockBackend MkCoreConfig {bpmRef, signalRef, beatRef} cont = do
+withMockBackend :: CoreConfig String -> (MockContext -> IO a) -> IO a
+withMockBackend mockCoreConfig cont = do
   spyChan <- newChan
-  (semaphore :: MVar ()) <- newEmptyMVar
   let
-    mockBackend :: Backend () String
-    mockBackend = makeMockBackend spyChan semaphore
+    mockBackend :: Backend String
+    mockBackend events = writeChan spyChan events
   let
-    mockConfig :: ()
-    mockConfig = ()
-  let
-    mockCoreConfig :: CoreConfig String
-    mockCoreConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
-  let
-    withMockSendEvent :: forall a. ([(Integer, String)] -> IO a) -> IO a
-    withMockSendEvent mockSendEvents = do
-      events <- readChan spyChan
-      result <- mockSendEvents events
-      putMVar semaphore ()
-      return result
+    getEvents :: IO [(Integer, String)]
+    getEvents = readChan spyChan
   let
     getNextNonEmptyBundle :: IO [(Integer, String)]
-    getNextNonEmptyBundle = withMockSendEvent return
+    getNextNonEmptyBundle = getEvents
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runBackend mockBackend mockConfig mockCoreConfig
-  result <- cont MkMockContext {withMockSendEvent, getNextNonEmptyBundle, bpmRef, signalRef}
+  threadId <- forkIO $ runBackend mockBackend mockCoreConfig
+  result <- cont MkMockContext {getEvents, getNextNonEmptyBundle}
   killThread threadId
   return result
 
@@ -78,7 +54,6 @@ spec = do
                 & (=<<) (`shouldBe` expectedResult)
           bundlePayloadsShouldBe ["hello"]
           bundlePayloadsShouldBe ["hello"]
-          return ()
 
       it "should call sendEvents with a timestamp delay of less than 2ms" $ do
         config <- makeDefaultConfig
@@ -98,8 +73,9 @@ spec = do
         getTimes bpm numBeats = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
-          withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> do
+          withMockBackend config $ \MkMockContext {getEvents} -> do
+            sequence $ replicate (numBeats * 24) $ do
+              getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
 
       describe "clock skew" $ do
@@ -130,8 +106,9 @@ spec = do
         calculateJitter bpm numBeats = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
-          times <- withMockBackend config $ \MkMockContext {withMockSendEvent} -> do
-            sequence $ replicate (numBeats * 24) $ withMockSendEvent $ \_ -> do
+          times <- withMockBackend config $ \MkMockContext {getEvents} -> do
+            sequence $ replicate (numBeats * 24) $ do
+              getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
           let
             delays :: [Integer]

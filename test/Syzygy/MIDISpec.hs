@@ -48,8 +48,9 @@ withMockMIDIServer coreConfig continuation = do
     waitForReadyComputation = takeMVar isReadySem
   waitForReadyComputation
   clientThread <- forkIO $ do
-    let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy Test Port"}
-    runBackend backend mockMIDIConfig coreConfig
+    let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy test port"}
+    backend <- makeMIDIBackend mockMIDIConfig
+    runBackend backend coreConfig
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do

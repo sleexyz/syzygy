@@ -14,20 +14,19 @@ import qualified Vivid.OSC as OSC
 
 import Syzygy.Core
 import Syzygy.Signal
-import qualified Syzygy.MIDI as M
-import qualified Syzygy.OSC as O
+import Syzygy.MIDI
+import Syzygy.OSC
 
 setup :: IO (CoreConfig (Either MIDIEvent.Data [OSC.OSC]))
 setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
-  -- let midiPortName = "UM-ONE MIDI 1"
-  let midiPortName = "VirMIDI 2-0"
-  let portNumber = 57120
-  let config = (M.MkMIDIConfig { midiPortName }, O.MkOSCConfig {portNumber})
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  _ <- forkIO $ runBackend (combineBackends M.backend O.backend) config coreConfig
+  midiBackend <- makeMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  oscBackend <- makeOSCBackend MkOSCConfig { portNumber = 57121 }
+  let backend = combineBackends midiBackend oscBackend
+  _ <- forkIO $ runBackend backend coreConfig
   return coreConfig
 
 main :: IO ()
@@ -40,8 +39,8 @@ main = do
 
 makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
 makeNoteEvents MkEvent{interval=(start, dur), payload} =
-  [ MkEvent {interval=(start, 0), payload=M.makeNoteOnData payload}
-  , MkEvent {interval=(start + dur, 0), payload=M.makeNoteOffData payload}
+  [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
+  , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
   ]
 
 -- TODO: use lenses
@@ -91,8 +90,8 @@ mr = fmap . second
 
 sigMod :: Signal (Either Word8 [OSC.OSC]) -> Signal (Either Word8 [OSC.OSC])
 sigMod = let (>>) = (flip (.)) in do
-  const (embed $ Left 48)
-  legato
-  overlay $ do
-    const (embed $ Right $ return $ OSC.OSC "/play2" [OSC.OSC_S "s", OSC.OSC_S "bd", OSC.OSC_S "speed", OSC.OSC_D 0.25])
-    shift (-0.25)
+  const (embed $ Left 60)
+  id
+  overlay $ const $ embed $ Right $
+    [ OSC.OSC "/fader1" [OSC.OSC_D 1]
+    ]

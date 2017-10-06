@@ -1,1 +1,1 @@
-# syzygy
+# SYZYGY
