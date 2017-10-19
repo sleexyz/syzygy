@@ -31,8 +31,8 @@ listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Bloc
       event <- MIDIEvent.input h
       eventHandler event
 
-withMockMIDIServer :: MIDIConfig -> (TestContext -> IO a) -> IO a
-withMockMIDIServer config continuation = do
+withMockMIDIServer :: CoreConfig MIDIEvent.Data -> (TestContext -> IO a) -> IO a
+withMockMIDIServer coreConfig continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
   (midiEventRef :: MVar MIDIEvent.T) <- newEmptyMVar
   listenerThread <- forkIO $ do
@@ -48,7 +48,9 @@ withMockMIDIServer config continuation = do
     waitForReadyComputation = takeMVar isReadySem
   waitForReadyComputation
   clientThread <- forkIO $ do
-    runBackend backend config
+    let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy test port"}
+    backend <- makeMIDIBackend mockMIDIConfig
+    runBackend (fromSimpleBackend backend) coreConfig
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do
@@ -79,8 +81,8 @@ isNoteEvent event = case MIDIEvent.body event of
   MIDIEvent.NoteEv _ _ -> True
   _ -> False
 
-makeDefaultConfig :: IO MIDIConfig
-makeDefaultConfig = do
+makeDefaultCoreConfig :: IO (CoreConfig MIDIEvent.Data)
+makeDefaultCoreConfig = do
   signalRef <- newMVar $ switch
     [ embed (makeNoteOnData 100)
     , embed (makeNoteOffData 100)
@@ -89,16 +91,14 @@ makeDefaultConfig = do
     ]
   beatRef <- newMVar 0
   bpmRef <- newMVar 240
-  let midiPortName = "Syzygy test port"
-  let config = MkMIDIConfig { bpmRef, midiPortName, signalRef, beatRef}
-  return config
+  return MkCoreConfig { bpmRef, signalRef, beatRef}
 
 spec :: Spec
 spec = do
   describe "MIDI Backend" $ do
     it "sends MIDI events with the right notes" $ do
-      config <- makeDefaultConfig
-      withMockMIDIServer config $ \MkTestContext{getNoteEvent} -> do
+      coreConfig <- makeDefaultCoreConfig
+      withMockMIDIServer coreConfig $ \MkTestContext{getNoteEvent} -> do
         event <- getNoteEvent
         getPitch event `shouldBe` 100
         getNoteEvTag event `shouldBe` MIDIEvent.NoteOn
@@ -116,8 +116,8 @@ spec = do
         getNoteEvTag event `shouldBe` MIDIEvent.NoteOff
 
     it "sends MIDI events at the right tempo, with jitter of less than 20ns" $ do
-      config <- makeDefaultConfig
-      withMockMIDIServer config $ \MkTestContext{getNoteEvent} -> do
+      coreConfig <- makeDefaultCoreConfig
+      withMockMIDIServer coreConfig $ \MkTestContext{getNoteEvent} -> do
         timeDifferences <- sequence [getNoteEvent | _ <- [1..10]]
           & (fmap . fmap) getNoteTime
           & fmap (\times -> zipWith (-) (tail times) times)

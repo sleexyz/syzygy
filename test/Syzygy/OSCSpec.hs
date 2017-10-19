@@ -45,8 +45,9 @@ withMockOSC defaultSignal bpm continuation = do
     bpmRef <- newMVar bpm
     signalRef <- newMVar defaultSignal
     beatRef <- newMVar 0
-    let config = MkOSCConfig{portNumber, bpmRef, signalRef, beatRef}
-    clientThread <- forkIO $ runBackend backend config
+    let coreConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
+    backend <- makeOSCBackend MkOSCConfig { portNumber }
+    clientThread <- forkIO $ runBackend (fromSimpleBackend backend) coreConfig
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan
           bundleHandler bundleVal

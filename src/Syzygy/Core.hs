@@ -1,5 +1,6 @@
 module Syzygy.Core where
 
+import Data.Profunctor (lmap)
 import Data.Function ((&))
 import Control.Concurrent
 import Control.Monad
@@ -14,22 +15,26 @@ data CoreConfig a = MkCoreConfig
   , beatRef :: MVar Rational
   }
 
-data Backend config a = MkBackend
-  { toCoreConfig :: config -> CoreConfig a
-  , makeEnv :: config -> IO (Env a)
+type SimpleBackend a = [(Integer, a)] -> IO ()
+
+type Backend a = Env a -> IO ()
+
+data Env a = MkEnv
+  { bpm :: Int
+  , interval :: (Rational, Rational)
+  , clock :: Integer
+  , events :: [Event a]
   }
 
-newtype Env a = MkEnv
-  { sendEvents :: [(Integer, a)] -> IO ()
-  }
+fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
+fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+  & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
 
-runBackend :: forall a config. Backend config a -> config -> IO ()
-runBackend MkBackend {toCoreConfig, makeEnv} config = do
-  let MkCoreConfig {bpmRef, signalRef, beatRef} = toCoreConfig config
-  MkEnv{sendEvents} <- makeEnv config
+runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
+runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
@@ -43,10 +48,12 @@ runBackend MkBackend {toCoreConfig, makeEnv} config = do
     beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
     let
-      timestampedEvents :: [(Integer, a)]
-      timestampedEvents = signal sig (beat, beatOffset)
-          & fmap (makeTimestamp bpm beat clock)
-    sendEvents timestampedEvents
+      interval :: (Rational, Rational)
+      interval = (beat, beatOffset)
+    let
+      events :: [Event a]
+      events = signal (pruneSignal sig) interval
+    backend MkEnv{bpm, interval, clock, events}
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)

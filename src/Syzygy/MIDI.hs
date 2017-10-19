@@ -17,7 +17,6 @@ import qualified Sound.ALSA.Sequencer.Queue as Queue
 import qualified System.Clock as Clock
 
 import Syzygy.Core
-import Syzygy.Signal
 
 getAddress :: (SndSeq.OpenMode mode) => SndSeq.T mode -> String -> (Addr.T -> IO ()) -> IO ()
 getAddress h expectedPortName continuation = do
@@ -49,9 +48,6 @@ connectTo expectedPortName continuation = do
 
 data MIDIConfig = MkMIDIConfig
   { midiPortName :: String
-  , bpmRef :: MVar Int
-  , signalRef :: MVar (Signal MIDIEvent.Data)
-  , beatRef :: MVar Rational
   }
 
 stamp :: Addr.T -> Queue.T -> Integer -> MIDIEvent.Data -> MIDIEvent.T
@@ -66,7 +62,7 @@ makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (
 makeNoteOffData :: Word8 -> MIDIEvent.Data
 makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
 
-makeMIDIEnv' :: MIDIConfig -> (Env MIDIEvent.Data -> IO ()) -> IO ()
+makeMIDIEnv' :: MIDIConfig -> (SimpleBackend MIDIEvent.Data -> IO ()) -> IO ()
 makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
   sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
   sendEvents events = do
@@ -83,11 +79,11 @@ makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ 
     Queue.control h queue MIDIEvent.QueueStart Nothing
     now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
     Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
-    continuation MkEnv {sendEvents}
+    continuation sendEvents
 
-makeMIDIEnv :: MIDIConfig -> IO (Env MIDIEvent.Data)
-makeMIDIEnv config = do
-  (envRef :: MVar (Maybe (Env MIDIEvent.Data))) <- newEmptyMVar
+makeMIDIBackend :: MIDIConfig -> IO (SimpleBackend MIDIEvent.Data)
+makeMIDIBackend config = do
+  (envRef :: MVar (Maybe (SimpleBackend MIDIEvent.Data))) <- newEmptyMVar
   void $ forkIO $ do
     makeMIDIEnv' config $ \env -> do
       putMVar envRef $ Just env
@@ -97,13 +93,3 @@ makeMIDIEnv config = do
   case maybeEnv of
     Just env -> return env
     Nothing -> error "Device not found"
-
-backend :: Backend MIDIConfig MIDIEvent.Data
-backend = MkBackend {toCoreConfig, makeEnv}
-  where
-    toCoreConfig :: MIDIConfig -> CoreConfig MIDIEvent.Data
-    toCoreConfig MkMIDIConfig{bpmRef, signalRef, beatRef} =
-      MkCoreConfig{bpmRef, signalRef, beatRef}
-
-    makeEnv :: MIDIConfig -> IO (Env MIDIEvent.Data)
-    makeEnv = makeMIDIEnv
