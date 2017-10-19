@@ -16,16 +16,25 @@ import Syzygy.Core
 import Syzygy.Signal
 import Syzygy.MIDI
 
-setup :: IO (CoreConfig MIDIEvent.Data)
+setup :: IO (CoreConfig Word8)
 setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  midiBackend <- makeMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
-  -- midiBackend <- makeMIDIBackend MkMIDIConfig { midiPortName = "UM-ONE MIDI 1"}
-  _ <- forkIO $ runBackend (fromSimpleBackend midiBackend) coreConfig
+  midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  -- midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "UM-ONE MIDI 1"}
+  _ <- forkIO $ runBackend midiBackend coreConfig
   return coreConfig
+
+makeEasyMIDIBackend :: MIDIConfig -> IO (Backend Word8)
+makeEasyMIDIBackend config = do
+  midiBackend <- makeMIDIBackend config
+  return $ \bpm (beat, beatOffset) clock sig ->
+    signal sig (beat, beatOffset)
+      & (>>=makeNoteEvents)
+      & fmap (makeTimestamp bpm beat clock)
+      & midiBackend
 
 main :: IO ()
 main = do
@@ -33,7 +42,6 @@ main = do
   modifyMVar_ bpmRef $ const . return $ 160
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
-    & mapEvent makeNoteEvents
 
 makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
 makeNoteEvents MkEvent{interval=(start, dur), payload} =
