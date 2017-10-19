@@ -23,18 +23,22 @@ setup = do
   bpmRef <- newMVar 120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
   midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
-  -- midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "UM-ONE MIDI 1"}
   _ <- forkIO $ runBackend midiBackend coreConfig
   return coreConfig
 
 makeEasyMIDIBackend :: MIDIConfig -> IO (Backend Word8)
 makeEasyMIDIBackend config = do
   midiBackend <- makeMIDIBackend config
-  return $ \bpm (beat, beatOffset) clock sig ->
-    signal sig (beat, beatOffset)
-      & (>>=makeNoteEvents)
-      & fmap (makeTimestamp bpm beat clock)
-      & midiBackend
+  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> events
+    & (>>=makeNoteEvents)
+    & fmap (makeTimestamp bpm beat clock)
+    & midiBackend
+  where
+    makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
+    makeNoteEvents MkEvent{interval=(start, dur), payload} =
+      [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
+      , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
+      ]
 
 main :: IO ()
 main = do
@@ -43,19 +47,6 @@ main = do
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
 
-makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
-makeNoteEvents MkEvent{interval=(start, dur), payload} =
-  [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
-  , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
-  ]
-
--- TODO: use lenses
-mapEvent :: (Event a -> [Event a']) -> Signal a -> Signal a'
-mapEvent f sig = MkSignal $ \query -> do
-  event <- signal sig query
-  newEvent <- event & \case
-    MkEvent{interval,payload=payload} -> f MkEvent{interval,payload}
-  return newEvent
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods

@@ -17,14 +17,19 @@ data CoreConfig a = MkCoreConfig
 
 type SimpleBackend a = [(Integer, a)] -> IO ()
 
-type Backend a = Int -> (Rational, Rational) -> Integer -> Signal a -> IO ()
+
+data Env a = MkEnv
+  { bpm :: Int
+  , interval :: (Rational, Rational)
+  , clock :: Integer
+  , events :: [Event a]
+  }
+
+type Backend a = Env a -> IO ()
 
 fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
-fromSimpleBackend sendTimestampedEvents bpm (beat, beatOffset) clock sig = sendTimestampedEvents timestampedEvents
-  where
-    timestampedEvents :: [(Integer, a)]
-    timestampedEvents = signal sig (beat, beatOffset)
-        & fmap (makeTimestamp bpm beat clock)
+fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+  & fmap (makeTimestamp bpm beat clock)
 
 
 _samplesPerBeat :: Num a => a
@@ -44,7 +49,10 @@ runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
       clockOffset = ((10^9 * 60) `div` fromIntegral bpm `div` _samplesPerBeat)
     beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
-    backend bpm (beat, beatOffset) clock (pruneSignal sig)
+    let
+      interval :: (Rational, Rational)
+      interval = (beat, beatOffset)
+    backend MkEnv{bpm, interval, clock, events=signal (pruneSignal sig) interval}
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)
