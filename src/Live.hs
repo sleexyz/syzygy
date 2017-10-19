@@ -24,7 +24,7 @@ setup = do
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
   midiBackend <- makeMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
   -- midiBackend <- makeMIDIBackend MkMIDIConfig { midiPortName = "UM-ONE MIDI 1"}
-  _ <- forkIO $ runBackend midiBackend coreConfig
+  _ <- forkIO $ runBackend (fromSimpleBackend midiBackend) coreConfig
   return coreConfig
 
 main :: IO ()

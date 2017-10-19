@@ -62,7 +62,7 @@ makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (
 makeNoteOffData :: Word8 -> MIDIEvent.Data
 makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
 
-makeMIDIEnv' :: MIDIConfig -> (Backend MIDIEvent.Data -> IO ()) -> IO ()
+makeMIDIEnv' :: MIDIConfig -> (SimpleBackend MIDIEvent.Data -> IO ()) -> IO ()
 makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
   sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
   sendEvents events = do
@@ -81,9 +81,9 @@ makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ 
     Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
     continuation sendEvents
 
-makeMIDIBackend :: MIDIConfig -> IO (Backend MIDIEvent.Data)
+makeMIDIBackend :: MIDIConfig -> IO (SimpleBackend MIDIEvent.Data)
 makeMIDIBackend config = do
-  (envRef :: MVar (Maybe (Backend MIDIEvent.Data))) <- newEmptyMVar
+  (envRef :: MVar (Maybe (SimpleBackend MIDIEvent.Data))) <- newEmptyMVar
   void $ forkIO $ do
     makeMIDIEnv' config $ \env -> do
       putMVar envRef $ Just env

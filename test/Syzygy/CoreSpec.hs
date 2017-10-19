@@ -20,7 +20,7 @@ withMockBackend :: CoreConfig String -> (MockContext -> IO a) -> IO a
 withMockBackend mockCoreConfig cont = do
   spyChan <- newChan
   let
-    mockBackend :: Backend String
+    mockBackend :: SimpleBackend String
     mockBackend events = writeChan spyChan events
   let
     getEvents :: IO [(Integer, String)]
@@ -30,7 +30,7 @@ withMockBackend mockCoreConfig cont = do
     getNextNonEmptyBundle = getEvents
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runBackend mockBackend mockCoreConfig
+  threadId <- forkIO $ runBackend (fromSimpleBackend mockBackend) mockCoreConfig
   result <- cont MkMockContext {getEvents, getNextNonEmptyBundle}
   killThread threadId
   return result

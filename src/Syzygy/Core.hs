@@ -15,14 +15,23 @@ data CoreConfig a = MkCoreConfig
   , beatRef :: MVar Rational
   }
 
-type Backend a = [(Integer, a)] -> IO ()
+type SimpleBackend a = [(Integer, a)] -> IO ()
+
+type Backend a = Int -> (Rational, Rational) -> Integer -> Signal a -> IO ()
+
+fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
+fromSimpleBackend sendTimestampedEvents bpm (beat, beatOffset) clock sig = sendTimestampedEvents timestampedEvents
+  where
+    timestampedEvents :: [(Integer, a)]
+    timestampedEvents = signal sig (beat, beatOffset)
+        & fmap (makeTimestamp bpm beat clock)
 
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
 
 runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
-runBackend sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
+runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
@@ -35,11 +44,7 @@ runBackend sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
       clockOffset = ((10^9 * 60) `div` fromIntegral bpm `div` _samplesPerBeat)
     beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
-    let
-      timestampedEvents :: [(Integer, a)]
-      timestampedEvents = signal sig (beat, beatOffset)
-          & fmap (makeTimestamp bpm beat clock)
-    sendEvents timestampedEvents
+    backend bpm (beat, beatOffset) clock sig
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)
@@ -55,7 +60,7 @@ waitTil t = do
   let timeToWait = t - now
   threadDelay (fromIntegral $ (timeToWait `div` 1000))
 
-extendBackend :: forall a b. (a -> b) -> Backend b -> Backend a
+extendBackend :: forall a b. (a -> b) -> SimpleBackend b -> SimpleBackend a
 extendBackend = (lmap . fmap . fmap)
 
 distribute :: forall a b x. [(x, Either a b)] -> ([(x, a)], [(x, b)])
@@ -66,7 +71,7 @@ distribute =
   in
     foldr f ([], [])
 
-combineBackends :: forall a b. Backend a -> Backend b -> Backend (Either a b)
+combineBackends :: forall a b. SimpleBackend a -> SimpleBackend b -> SimpleBackend (Either a b)
 combineBackends sendEventsA  sendEventsB events = do
   let (as, bs) = distribute events
   sendEventsA as
