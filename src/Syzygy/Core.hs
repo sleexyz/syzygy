@@ -44,7 +44,7 @@ runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
       clockOffset = ((10^9 * 60) `div` fromIntegral bpm `div` _samplesPerBeat)
     beat <- modifyMVar beatRef (\beat -> return (beat + beatOffset, beat))
     clock <- modifyMVar clockRef (\clock -> return (clock + clockOffset, clock))
-    backend bpm (beat, beatOffset) clock sig
+    backend bpm (beat, beatOffset) clock (pruneSignal sig)
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)

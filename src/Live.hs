@@ -163,8 +163,6 @@ sigMod3 = let (>>) = (flip (.)) in do
 sigMod :: Signal Word8 -> Signal Word8
 sigMod = let (>>) = (flip (.)) in do
   const (embed 60)
-  tts 1 [ fmap (+(x)) | x <- [0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  fast 6
-  tts (2) [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]
+  n [ fmap (+(x)) | x <- [0, 3, 10, 12, 19, 3]]
   overlay $ do
-    const (embed 36)
+    const (embed (36))
