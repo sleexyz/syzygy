@@ -17,6 +17,7 @@ data CoreConfig a = MkCoreConfig
 
 type SimpleBackend a = [(Integer, a)] -> IO ()
 
+type Backend a = Env a -> IO ()
 
 data Env a = MkEnv
   { bpm :: Int
@@ -25,12 +26,9 @@ data Env a = MkEnv
   , events :: [Event a]
   }
 
-type Backend a = Env a -> IO ()
-
 fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
 fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
-
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
@@ -52,7 +50,10 @@ runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
     let
       interval :: (Rational, Rational)
       interval = (beat, beatOffset)
-    backend MkEnv{bpm, interval, clock, events=signal (pruneSignal sig) interval}
+    let
+      events :: [Event a]
+      events = signal (pruneSignal sig) interval
+    backend MkEnv{bpm, interval, clock, events}
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)
@@ -67,23 +68,6 @@ waitTil t = do
   now <- Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   let timeToWait = t - now
   threadDelay (fromIntegral $ (timeToWait `div` 1000))
-
-extendBackend :: forall a b. (a -> b) -> SimpleBackend b -> SimpleBackend a
-extendBackend = (lmap . fmap . fmap)
-
-distribute :: forall a b x. [(x, Either a b)] -> ([(x, a)], [(x, b)])
-distribute =
-  let
-    f (i, Left l) (ls, rs) = ((i,l):ls, rs)
-    f (i, Right r) (ls, rs) = (ls, (i,r):rs)
-  in
-    foldr f ([], [])
-
-combineBackends :: forall a b. SimpleBackend a -> SimpleBackend b -> SimpleBackend (Either a b)
-combineBackends sendEventsA  sendEventsB events = do
-  let (as, bs) = distribute events
-  sendEventsA as
-  sendEventsB bs
 
 runOnce :: IO a -> IO a
 runOnce computation = do
