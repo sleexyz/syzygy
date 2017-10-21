@@ -1,6 +1,5 @@
 module Syzygy.Core where
 
-import Data.Profunctor (lmap)
 import Data.Function ((&))
 import Control.Concurrent
 import Control.Monad
@@ -31,7 +30,7 @@ fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,event
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
-_samplesPerBeat = 24
+_samplesPerBeat = 1
 
 runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
 runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do

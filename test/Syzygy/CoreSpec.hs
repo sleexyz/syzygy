@@ -74,7 +74,7 @@ spec = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           withMockBackend config $ \MkMockContext {getEvents} -> do
-            sequence $ replicate (numBeats * 24) $ do
+            sequence $ replicate (numBeats * _samplesPerBeat) $ do
               getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
 
@@ -107,7 +107,7 @@ spec = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
           times <- withMockBackend config $ \MkMockContext {getEvents} -> do
-            sequence $ replicate (numBeats * 24) $ do
+            sequence $ replicate (numBeats * _samplesPerBeat) $ do
               getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
           let
@@ -121,19 +121,19 @@ spec = do
             deltas = zipWith (\x y -> (/(10^9)) $ fromIntegral $ abs (x - y)) delays expectedDelays
           return $ mean deltas * fromIntegral _samplesPerBeat
 
-        in void $ ($[1, 2, 4]) $ traverse $ \numBeats -> do
+        in void $ ($[2, 4, 8]) $ traverse $ \numBeats -> do
           describe ("over " <> show numBeats <> " beat(s)") $ do
             it "is less than 15ms/beat at 240 bpm" $ do
               let bpm = 240
               jitter <- calculateJitter bpm numBeats
-              jitter `shouldBeLessThan` 0.015
+              jitter `shouldBeLessThan` 0.002
 
             it "is less than 15ms/beat at 120 bpm" $ do
               let bpm = 120
               jitter <- calculateJitter bpm numBeats
-              jitter `shouldBeLessThan` 0.015
+              jitter `shouldBeLessThan` 0.002
 
             it "is less than 15ms/beat at 60bpm" $ do
               let bpm = 60
               jitter <- calculateJitter bpm numBeats
-              jitter `shouldBeLessThan` 0.015
+              jitter `shouldBeLessThan` 0.002
