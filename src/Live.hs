@@ -22,7 +22,7 @@ setup = do
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 3-0"}
   _ <- forkIO $ runBackend midiBackend coreConfig
   return coreConfig
 

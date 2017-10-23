@@ -121,7 +121,7 @@ spec = do
             deltas = zipWith (\x y -> (/(10^9)) $ fromIntegral $ abs (x - y)) delays expectedDelays
           return $ mean deltas * fromIntegral _samplesPerBeat
 
-        in void $ ($[2, 4, 8]) $ traverse $ \numBeats -> do
+        in void $ ($[2, 4]) $ traverse $ \numBeats -> do
           describe ("over " <> show numBeats <> " beat(s)") $ do
             it "is less than 15ms/beat at 240 bpm" $ do
               let bpm = 240
