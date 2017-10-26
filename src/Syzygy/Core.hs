@@ -1,6 +1,5 @@
 module Syzygy.Core where
 
-import Data.Profunctor (lmap)
 import Data.Function ((&))
 import Control.Concurrent
 import Control.Monad
