@@ -8,31 +8,31 @@ import qualified System.Clock as Clock
 
 import Syzygy.Signal
 
-data CoreConfig a = MkCoreConfig
+data CoreConfig' a = MkCoreConfig
   { bpmRef :: MVar Int
   , signalRef :: MVar (Signal a)
   , beatRef :: MVar Rational
   }
 
-type SimpleBackend a = [(Integer, a)] -> IO ()
+type SimpleBackend' a = [(Integer, a)] -> IO ()
 
-type Backend a = Env a -> IO ()
+type Backend' a = Env' a -> IO ()
 
-data Env a = MkEnv
+data Env' a = MkEnv
   { bpm :: Int
   , interval :: (Rational, Rational)
   , clock :: Integer
   , events :: [Event a]
   }
 
-fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
-fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+fromSimpleBackend' :: forall a. SimpleBackend' a -> Backend' a
+fromSimpleBackend' sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
-_samplesPerBeat = 24
+_samplesPerBeat = 1
 
-runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
+runBackend :: forall a. Backend' a -> CoreConfig' a -> IO ()
 runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do

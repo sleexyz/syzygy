@@ -16,12 +16,12 @@ data MockContext = MkMockContext
   , getNextNonEmptyBundle :: IO [(Integer, String)]
   }
 
-withMockBackend :: CoreConfig String -> (MockContext -> IO a) -> IO a
-withMockBackend mockCoreConfig cont = do
+withMockBackend' :: CoreConfig' String -> (MockContext -> IO a) -> IO a
+withMockBackend' mockConfig cont = do
   spyChan <- newChan
   let
-    mockBackend :: SimpleBackend String
-    mockBackend events = writeChan spyChan events
+    mockBackend' :: SimpleBackend' String
+    mockBackend' events = writeChan spyChan events
   let
     getEvents :: IO [(Integer, String)]
     getEvents = readChan spyChan
@@ -30,12 +30,12 @@ withMockBackend mockCoreConfig cont = do
     getNextNonEmptyBundle = getEvents
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runBackend (fromSimpleBackend mockBackend) mockCoreConfig
+  threadId <- forkIO $ runBackend (fromSimpleBackend' mockBackend') mockConfig
   result <- cont MkMockContext {getEvents, getNextNonEmptyBundle}
   killThread threadId
   return result
 
-makeDefaultConfig :: IO (CoreConfig String)
+makeDefaultConfig :: IO (CoreConfig' String)
 makeDefaultConfig = do
   bpmRef <- newMVar 120
   signalRef <- newMVar $ embed "hello"
@@ -48,7 +48,7 @@ spec = do
     describe "when invoking sendEvents" $ do
       it "should call sendEvents with the right payloads each frame" $ do
         config <- makeDefaultConfig
-        withMockBackend config $ \MkMockContext {getNextNonEmptyBundle} -> do
+        withMockBackend' config $ \MkMockContext {getNextNonEmptyBundle} -> do
           let bundlePayloadsShouldBe expectedResult = getNextNonEmptyBundle
                 & (fmap . fmap) snd
                 & (=<<) (`shouldBe` expectedResult)
@@ -57,7 +57,7 @@ spec = do
 
       it "should call sendEvents with a timestamp delay of less than 2ms" $ do
         config <- makeDefaultConfig
-        withMockBackend config $ \MkMockContext {getNextNonEmptyBundle} -> do
+        withMockBackend' config $ \MkMockContext {getNextNonEmptyBundle} -> do
           let getLatency = do
                 [stamp] <- getNextNonEmptyBundle
                   & (fmap . fmap) fst
@@ -73,7 +73,7 @@ spec = do
         getTimes bpm numBeats = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
-          withMockBackend config $ \MkMockContext {getEvents} -> do
+          withMockBackend' config $ \MkMockContext {getEvents} -> do
             sequence $ replicate (numBeats * 24) $ do
               getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
@@ -106,7 +106,7 @@ spec = do
         calculateJitter bpm numBeats = do
           config@MkCoreConfig{bpmRef} <- makeDefaultConfig
           modifyMVar_ bpmRef (const $ return $ bpm)
-          times <- withMockBackend config $ \MkMockContext {getEvents} -> do
+          times <- withMockBackend' config $ \MkMockContext {getEvents} -> do
             sequence $ replicate (numBeats * 24) $ do
               getEvents
               Clock.toNanoSecs <$> Clock.getTime Clock.Realtime

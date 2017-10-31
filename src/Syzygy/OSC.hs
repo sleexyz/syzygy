@@ -31,8 +31,8 @@ makeLocalUDPConnection portNumber = do
   Network.connect socket (Network.addrAddress a)
   return socket
 
-makeOSCBackend :: OSCConfig -> IO (SimpleBackend [OSC.OSC])
-makeOSCBackend MkOSCConfig{portNumber} = do
+makeOSCBackend' :: OSCConfig -> IO (SimpleBackend' [OSC.OSC])
+makeOSCBackend' MkOSCConfig{portNumber} = do
   socket <- makeLocalUDPConnection portNumber
   let
     sendEvents :: [ (Integer, [OSC.OSC]) ] -> IO ()
@@ -52,5 +52,5 @@ main = do
   beatRef <- newMVar 0
   let portNumber = 57120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  backend <- makeOSCBackend MkOSCConfig { portNumber }
-  runBackend (fromSimpleBackend backend) coreConfig
+  backend <- makeOSCBackend' MkOSCConfig { portNumber }
+  runBackend (fromSimpleBackend' backend) coreConfig

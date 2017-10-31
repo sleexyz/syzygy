@@ -1,44 +1,36 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE PatternGuards #-}
 module Live where
 
 import Control.Monad
-import Data.Bifunctor
 import Control.Concurrent
-import Data.Word (Word8)
 import Data.Function ((&))
 import Prelude
 import Data.String
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
+-- import qualified Vivid.OSC as OSC
 import qualified Vivid.OSC as OSC
+import qualified Data.Map.Strict as Map
+import qualified Data.ByteString as BS
 
 import Syzygy.Core
+import Syzygy.Base
 import Syzygy.Signal
 import Syzygy.MIDI
+import Syzygy.OSC
 
-setup :: IO (CoreConfig Word8)
+setup :: IO CoreConfig
 setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
-  _ <- forkIO $ runBackend midiBackend coreConfig
+  let midiConfig = MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  let oscConfig = MkOSCConfig { portNumber = 57120}
+  backend <- makeBackend midiConfig oscConfig
+  _ <- forkIO $ runBackend backend coreConfig
   return coreConfig
-
-makeEasyMIDIBackend :: MIDIConfig -> IO (Backend Word8)
-makeEasyMIDIBackend config = do
-  midiBackend <- makeMIDIBackend config
-  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> events
-    & (>>=makeNoteEvents)
-    & fmap (makeTimestamp bpm beat clock)
-    & midiBackend
-  where
-    makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
-    makeNoteEvents MkEvent{interval=(start, dur), payload} =
-      [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
-      , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
-      ]
 
 main :: IO ()
 main = do
@@ -47,11 +39,81 @@ main = do
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
 
+composeBackend :: Backend -> Backend -> Backend
+composeBackend b1 b2 env = do
+  b1 env
+  b2 env
+
+makeBackend :: MIDIConfig -> OSCConfig -> IO Backend
+makeBackend midiConfig oscConfig = do
+  midiBackend <- makeMIDIBackend midiConfig
+  oscBackend <- makeOSCBackend oscConfig
+  return $ midiBackend `composeBackend` oscBackend
+
+makeMIDIBackend :: MIDIConfig -> IO Backend
+makeMIDIBackend config = do
+  sendMIDIEvents <- makeMIDIBackend' config
+  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
+    events
+      & (>>=makeMIDIEvents)
+      & fmap (makeTimestamp bpm beat clock)
+      & sendMIDIEvents
+
+makeMIDIEvents :: Event ParamMap -> [Event MIDIEvent.Data]
+makeMIDIEvents MkEvent{interval=(start, dur), payload}
+  | Just (VI (fromIntegral -> channel)) <- Map.lookup "channel" payload
+  , Just (VI (fromIntegral -> pitch)) <- Map.lookup "pitch" payload
+  = [ MkEvent {interval=(start, 0), payload=makeNoteOnData channel pitch}
+    , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData channel pitch}
+    ]
+makeMIDIEvents MkEvent{interval=(start,_), payload}
+  | Just (VI (fromIntegral -> param)) <- Map.lookup "param" payload
+  , Just (VI (fromIntegral -> value)) <- Map.lookup "value" payload
+  = return $ MkEvent {interval=(start, 0), payload=makeCtrlMessage param value}
+makeMIDIEvents MkEvent{} = []
+
+makeOSCBackend :: OSCConfig -> IO Backend
+makeOSCBackend config = do
+  sendOSCEvents <- makeOSCBackend' config
+  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
+    events
+      & (>>=makeOSCEvents)
+      & fmap (makeTimestamp bpm beat clock)
+      & sendOSCEvents
+
+      
+
+makeOSCEvents :: Event ParamMap -> [Event [OSC.OSC]]
+makeOSCEvents event@MkEvent{payload}
+  | Just (VS sound) <- Map.lookup "s" payload
+  = let
+      values :: [OSC.OSCDatum]
+      values = mconcat 
+        [ [OSC.OSC_S "s", OSC.OSC_S sound]
+        , lookupF "speed" payload
+        ]
+      lookupF :: (forall s. IsString s => s) -> ParamMap -> [OSC.OSCDatum]
+      lookupF key map = case Map.lookup key map of
+        Just (VF x) -> [OSC.OSC_S key, OSC.OSC_F (realToFrac x)]
+        _ -> []
+    in 
+      return $ event { payload= [OSC.OSC "/play2" values] }
+makeOSCEvents MkEvent{} = []
+
+sound :: BS.ByteString ->  Signal ParamMap -> Signal ParamMap
+sound s = const . embed $ Map.fromList 
+  [ ("s", VS s)
+  , ("speed", VF 1)
+  ]
+
+note :: Int -> Int -> Signal ParamMap -> Signal ParamMap
+note c p = const . embed $ Map.fromList [("channel", VI c), ("pitch", VI p)]
+
+ctrl :: Int -> Int -> Signal ParamMap -> Signal ParamMap
+ctrl c v = const . embed $ Map.fromList [("param", VI c), ("value", VI v)]
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
-
-infixl 4 `tt`
 
 tt :: Rational -> (Signal a -> Signal a) -> Signal a -> Signal a
 tt i mod sig = sig
@@ -65,9 +127,8 @@ fracture n f = foldr (flip (.)) id ([tt (1/(2^i)) f | i <- [0..n]])
 overlay :: (Signal a -> Signal a) -> (Signal a -> Signal a)
 overlay f = with mconcat [id, f]
 
-filterSig :: (a -> Bool) -> Signal a -> Signal a
-filterSig pred sig = MkSignal $ \query -> signal sig query
-  & filter (\MkEvent{payload}-> pred payload)
+rep :: Rational ->  Signal a -> Signal a
+rep n = tt n $ with switch [id, shift 1 ]
 
 staccato :: Signal a -> Signal a
 staccato sig = sig & (mapInterval . mapDur) (/4)
@@ -87,106 +148,40 @@ n = with nest
 m :: [Signal a -> Signal a] -> Signal a -> Signal a
 m = with mconcat
 
-ml :: (Functor f, Bifunctor g) => (a -> a) -> f (g a b) -> f (g a b)
-ml = fmap . first
+pmap :: (Int -> Int) -> (Signal ParamMap -> Signal ParamMap)
+pmap = fmap . ((flip Map.adjust  "pitch") . mapVI)
 
-mr :: (Functor f, Bifunctor g) => (b -> b) -> f (g a b) -> f (g a b)
-mr = fmap . second
+smap :: (Double -> Double) -> (Signal ParamMap -> Signal ParamMap)
+smap = fmap . ((flip Map.adjust  "speed") . mapVF)
 
-rgb :: Float -> Float -> Float -> [OSC.OSC]
-rgb r g b =
-  [ OSC.OSC "/1/fader1" [OSC.OSC_F r]
-  , OSC.OSC "/1/fader2" [OSC.OSC_F g]
-  , OSC.OSC "/1/fader3" [OSC.OSC_F b]
-  ]
+vmap :: (Int -> Int) -> (Signal ParamMap -> Signal ParamMap)
+vmap = fmap . (flip Map.adjust  "value") . mapVI
 
-ttsml :: Rational -> [Word8] -> Signal (Either Word8 b) -> Signal (Either Word8 b)
-ttsml x fs = tt x $ with switch (fs & fmap (\x -> ml (+x)))
-
-tts :: Rational -> [Signal Word8 -> Signal Word8] -> Signal Word8 -> Signal Word8
-tts x fs = tt x $ with switch fs
-
-ttsf :: Rational -> [Word8] -> Signal Word8 -> Signal Word8
-ttsf x fs = tt x $ with switch (fs & fmap  (\x -> fmap (+x)))
-
-rep :: Rational ->  Signal a -> Signal a
-rep n = tt n $ with switch [id, shift 1 ]
-
-
-tc :: Rational -> [Signal a -> Signal a] -> Signal a -> Signal a
-tc n fs = tt (1/n) $ with cat $ fmap (\f -> tt n f) fs
-
-glisten :: Signal Word8 -> Signal Word8
-glisten = fmap $ \x -> (x + ((x `mod` 4) * 12))
-
-sigMod1 :: Signal Word8 -> Signal Word8
-sigMod1 = let (>>) = (flip (.)) in do
-  const (embed $ 60)
-  staccato
-  fast 4
-  tt (2) $ do
-    ttsf 2 [0, 3, 10, 12]
-    ttsf (1/8) [17, 12, 10, 12]
-    ttsf (1/2) [-12,-24]
-
-sigMod2 :: Signal Word8 -> Signal Word8
-sigMod2 = let (>>) = (flip (.)) in do
-  const (embed $ 48)
-  fmap (+24)
-  fast 4
-  -- tc (4) $
-  --   [ ttsf 2 [-27, 0, -1, 7]
-  --   , ttsf 2 [-27, -1, -8, 7]
-  --   ]
-  -- tts (1) [id, id, fmap (+(12)), id]
-  -- tts (1/16) [id, fmap (+(-12))]
-  -- tts (1/32) [id, fmap (+(-2))]
-
-
-sigMod3 :: Signal Word8 -> Signal Word8
-sigMod3 = let (>>) = (flip (.)) in do
-  const (embed 60)
-  tts 1 [ fmap (+(x)) | x <- [0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  fast 6
-  tts (2) [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]
-  overlay $ do
-    const (embed 36)
-  --   s [fmap (+0), fmap (+2), fmap (+7), fmap (subtract 5)] & tt (1/16)
-  -- fmap (+(-24))
-
-sigMod4 :: Signal Word8 -> Signal Word8
-sigMod4 = let (>>) = (flip (.)) in do
-  const (embed 48)
-  -- tts 1 [ fmap (+(x)) | x <- [0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  s [ fmap (+(x)) | x <- [0, 3, 10, 12, 19, 3]]
-  fast 4
-  tt 2 $ s [id, fmap (+12)]
-  -- overlay $ do
-  --   const (embed (120))
-
-sigMod5 :: Signal Word8 -> Signal Word8
-sigMod5 = let (>>) = (flip (.)) in do
-  const (embed 48)
-  s [fast 4]
-  fmap (+24)
-  tt 4 $ c [fmap (+3), fmap (+0)]
-  tt 4 $ s [fmap (+0), fmap (+2), fmap (+0)]
-  overlay $ do
-    const $ embed 24
-    -- tt (1/16) $ s [id, fmap (+(-2)), fmap (+(-4)), fmap (+(-7))]
-    -- overlay $ do
-    --   fmap (+12)
-    -- overlay $ do
-    --   fmap (+(7)) . shift 0.5
-    -- s [fmap (+12), fmap (+24)]
-    -- overlay $ s [tt (1/16) $ s [fmap (+10), fmap (+10), fmap (+14), fmap (+14)], fmap (+24)] . shift 0.5
-
-sigMod :: Signal Word8 -> Signal Word8
+sigMod :: Signal ParamMap -> Signal ParamMap
 sigMod = let (>>) = (flip (.)) in do
-  const (embed 60)
-  s [ fmap (+(x)) | x <- [0, 3, 10, 12, 19, 3]]
-  s [fast 4]
-  tt (1/4) $ s [id, fmap (+12)]
-  tt (2/4) $ s [id, fmap (+12)]
-  tt (4/4) $ s [id, fmap (+12)]
-  glisten
+  id
+  id
+  overlay $ do
+    note 1 (30)
+    fast 4
+
+  overlay $ do
+    ctrl 1 30
+    tt (1) $ s [vmap (+(x*12)) | x <- [0..7]]
+    fast 8
+
+  overlay $ do
+    sound "dr55"
+    s [smap (*x) | x <- [1..4]]
+    s [ fast 2 . smap (/1.5), id]
+
+  s [id, shift 0.5]
+
+  s [pmap (+x) | x <- [0, 30]] & tt (1/16)
+
+  overlay $ do
+    note 2 (30)
+
+  s [pmap (const 127), id]
+
+  tt (1/16) $ s [id, vmap (+12)]

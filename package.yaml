@@ -33,6 +33,7 @@ dependencies:
   - alsa-seq
   - foreign-store
   - clock
+  - containers
 
 library:
   source-dirs: src
