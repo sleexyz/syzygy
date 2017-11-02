@@ -27,8 +27,8 @@ setup = do
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
   let midiConfig = MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
   let oscConfig = MkOSCConfig { portNumber = 57120}
-  backend <- makeBackend midiConfig oscConfig
-  _ <- forkIO $ runBackend backend coreConfig
+  dispatcher <- makeDispatcher midiConfig oscConfig
+  _ <- forkIO $ runEventDispatcher dispatcher coreConfig
   return coreConfig
 
 main :: IO ()
@@ -38,20 +38,20 @@ main = do
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
 
-composeBackend :: Backend -> Backend -> Backend
-composeBackend b1 b2 env = do
+composeDispatcher :: Dispatcher -> Dispatcher -> Dispatcher
+composeDispatcher b1 b2 env = do
   b1 env
   b2 env
 
-makeBackend :: MIDIConfig -> OSCConfig -> IO Backend
-makeBackend midiConfig oscConfig = do
-  midiBackend <- makeMIDIBackend midiConfig
-  oscBackend <- makeOSCBackend oscConfig
-  return $ midiBackend `composeBackend` oscBackend
+makeDispatcher :: MIDIConfig -> OSCConfig -> IO Dispatcher
+makeDispatcher midiConfig oscConfig = do
+  midiDispatcher <- makeMIDIDispatcher midiConfig
+  oscDispatcher <- makeOSCDispatcher oscConfig
+  return $ midiDispatcher `composeDispatcher` oscDispatcher
 
-makeMIDIBackend :: MIDIConfig -> IO Backend
-makeMIDIBackend config = do
-  sendMIDIEvents <- makeMIDISendTimestampedEvents config
+makeMIDIDispatcher :: MIDIConfig -> IO Dispatcher
+makeMIDIDispatcher config = do
+  sendMIDIEvents <- makeMIDITimestampedEventDispatcher config
   return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
     events
       & (>>=makeMIDIEvents)
@@ -71,9 +71,9 @@ makeMIDIEvents MkEvent{interval=(start,_), payload}
   = return $ MkEvent {interval=(start, 0), payload=makeCtrlMessage param value}
 makeMIDIEvents MkEvent{} = []
 
-makeOSCBackend :: OSCConfig -> IO Backend
-makeOSCBackend config = do
-  sendOSCEvents <- makeOSCSendTimestampedEvents config
+makeOSCDispatcher :: OSCConfig -> IO Dispatcher
+makeOSCDispatcher config = do
+  sendOSCEvents <- makeOSCTimestampedEventDispatcher config
   return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
     events
       & (>>=makeOSCEvents)

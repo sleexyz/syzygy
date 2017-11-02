@@ -24,6 +24,6 @@ mapVI :: (Int -> Int) -> Value -> Value
 mapVI f (VI x)  =  VI (f x)
 mapVI _ x  =  x
 
-type Backend = SendEvents ParamMap
+type Dispatcher = EventDispatcher ParamMap
 type CoreConfig = CoreConfig_ ParamMap
 type Env = Env_ ParamMap

@@ -49,8 +49,8 @@ withMockMIDIServer coreConfig continuation = do
   waitForReadyComputation
   clientThread <- forkIO $ do
     let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy test port"}
-    backend <- makeMIDISendTimestampedEvents mockMIDIConfig
-    runBackend (fromSendTimestampedEvents backend) coreConfig
+    timestampedEventDispatcher <- makeMIDITimestampedEventDispatcher mockMIDIConfig
+    runEventDispatcher (fromTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do
@@ -95,8 +95,8 @@ makeDefaultCoreConfig = do
 
 spec :: Spec
 spec = do
-  describe "MIDI SendTimestampedEvents'" $ do
-    it "sends MIDI events with the right notes" $ do
+  describe "MIDI TimestampedEventDispatcher'" $ do
+    it "dispatches MIDI events with the right notes" $ do
       coreConfig <- makeDefaultCoreConfig
       withMockMIDIServer coreConfig $ \MkTestContext{getNoteEvent} -> do
         event <- getNoteEvent
@@ -115,7 +115,7 @@ spec = do
         getPitch event `shouldBe` 200
         getNoteEvTag event `shouldBe` MIDIEvent.NoteOff
 
-    it "sends MIDI events at the right tempo, with jitter of less than 20ns" $ do
+    it "dispatches MIDI events at the right tempo, with jitter of less than 20ns" $ do
       coreConfig <- makeDefaultCoreConfig
       withMockMIDIServer coreConfig $ \MkTestContext{getNoteEvent} -> do
         timeDifferences <- sequence [getNoteEvent | _ <- [1..10]]

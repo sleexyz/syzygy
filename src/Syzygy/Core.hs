@@ -14,11 +14,9 @@ data CoreConfig_ a = MkCoreConfig
   , beatRef :: MVar Rational
   }
 
--- * Internal, parametrized type for backends
-type SendEvents a = Env_ a -> IO ()
+type EventDispatcher a = Env_ a -> IO ()
 
--- * Internal, parameterized type for backends (Simplified)
-type SendTimestampedEvents a = [(Integer, a)] -> IO ()
+type TimestampedEventDispatcher a = [(Integer, a)] -> IO ()
 
 data Env_ a = MkEnv
   { bpm :: Int
@@ -27,15 +25,15 @@ data Env_ a = MkEnv
   , events :: [Event a]
   }
 
-fromSendTimestampedEvents :: forall a. SendTimestampedEvents a -> SendEvents a
-fromSendTimestampedEvents sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+fromTimestampedEventDispatcher :: forall a. TimestampedEventDispatcher a -> EventDispatcher a
+fromTimestampedEventDispatcher sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
 _samplesPerBeat = 24
 
-runBackend :: forall a. SendEvents a -> CoreConfig_ a -> IO ()
-runBackend sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
+runEventDispatcher :: forall a. EventDispatcher a -> CoreConfig_ a -> IO ()
+runEventDispatcher sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
