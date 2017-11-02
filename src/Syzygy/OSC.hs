@@ -53,4 +53,4 @@ main = do
   let portNumber = 57120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
   timestampedEventDispatcher <- makeOSCTimestampedEventDispatcher MkOSCConfig { portNumber }
-  runEventDispatcher (fromTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
+  runEventDispatcher (liftTimestampedEventDispatcher timestampedEventDispatcher) coreConfig

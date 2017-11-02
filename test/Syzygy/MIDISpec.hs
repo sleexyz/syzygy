@@ -50,7 +50,7 @@ withMockMIDIServer coreConfig continuation = do
   clientThread <- forkIO $ do
     let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy test port"}
     timestampedEventDispatcher <- makeMIDITimestampedEventDispatcher mockMIDIConfig
-    runEventDispatcher (fromTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
+    runEventDispatcher (liftTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do

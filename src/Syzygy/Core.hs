@@ -25,8 +25,8 @@ data Env_ a = MkEnv
   , events :: [Event a]
   }
 
-fromTimestampedEventDispatcher :: forall a. TimestampedEventDispatcher a -> EventDispatcher a
-fromTimestampedEventDispatcher sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+liftTimestampedEventDispatcher :: forall a. TimestampedEventDispatcher a -> EventDispatcher a
+liftTimestampedEventDispatcher sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a

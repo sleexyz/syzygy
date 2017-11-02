@@ -47,7 +47,7 @@ withMockOSC defaultSignal bpm continuation = do
     beatRef <- newMVar 0
     let coreConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
     timestampedEventDispatcher <- makeOSCTimestampedEventDispatcher MkOSCConfig { portNumber }
-    clientThread <- forkIO $ runEventDispatcher (fromTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
+    clientThread <- forkIO $ runEventDispatcher (liftTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan
           bundleHandler bundleVal

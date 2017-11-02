@@ -30,7 +30,7 @@ withMockTimestampedEventDispatcher mockConfig cont = do
     getNextNonEmptyBundle = getEvents
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runEventDispatcher (fromTimestampedEventDispatcher mockTimestampedEventDispatcher) mockConfig
+  threadId <- forkIO $ runEventDispatcher (liftTimestampedEventDispatcher mockTimestampedEventDispatcher) mockConfig
   result <- cont MkMockContext {getEvents, getNextNonEmptyBundle}
   killThread threadId
   return result
