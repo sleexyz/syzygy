@@ -7,7 +7,7 @@ import qualified Data.ByteString as BS
 import Syzygy.Core
 
 
-type ParamMap = Map String Value
+type ParamMap = Map BS.ByteString Value
 
 data Value = VS BS.ByteString | VF Double | VI Int
   deriving (Show)
@@ -27,3 +27,6 @@ mapVI _ x  =  x
 type Dispatcher = EventDispatcher ParamMap
 type CoreConfig = CoreConfig_ ParamMap
 type Env = Env_ ParamMap
+
+runDispatcher :: Dispatcher -> CoreConfig -> IO ()
+runDispatcher = runEventDispatcher

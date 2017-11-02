@@ -25,10 +25,9 @@ setup = do
   beatRef <- newMVar 0
   bpmRef <- newMVar 120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  let midiConfig = MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
-  let oscConfig = MkOSCConfig { portNumber = 57120}
-  dispatcher <- makeDispatcher midiConfig oscConfig
-  _ <- forkIO $ runEventDispatcher dispatcher coreConfig
+  midiDispatcher <- makeMIDIDispatcher MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  oscDispatcher <- makeOSCDispatcher MkOSCConfig { portNumber = 57120}
+  _ <- forkIO $ runDispatcher (midiDispatcher `composeDispatcher` oscDispatcher) coreConfig
   return coreConfig
 
 main :: IO ()
@@ -42,12 +41,6 @@ composeDispatcher :: Dispatcher -> Dispatcher -> Dispatcher
 composeDispatcher b1 b2 env = do
   b1 env
   b2 env
-
-makeDispatcher :: MIDIConfig -> OSCConfig -> IO Dispatcher
-makeDispatcher midiConfig oscConfig = do
-  midiDispatcher <- makeMIDIDispatcher midiConfig
-  oscDispatcher <- makeOSCDispatcher oscConfig
-  return $ midiDispatcher `composeDispatcher` oscDispatcher
 
 makeMIDIDispatcher :: MIDIConfig -> IO Dispatcher
 makeMIDIDispatcher config = do
@@ -85,23 +78,31 @@ makeOSCEvents event@MkEvent{payload}
   | Just (VS sound) <- Map.lookup "s" payload
   = let
       values :: [OSC.OSCDatum]
-      values = mconcat
-        [ [OSC.OSC_S "s", OSC.OSC_S sound]
-        , lookupF "speed" payload
-        ]
-      lookupF :: (forall s. IsString s => s) -> ParamMap -> [OSC.OSCDatum]
+      values = mconcat ([ [OSC.OSC_S "s", OSC.OSC_S sound]] ++ extractDirtParameters payload)
+    in
+      return $ event { payload = [OSC.OSC "/play2" values] }
+makeOSCEvents MkEvent{} = []
+
+customParams :: [(BS.ByteString, Value)]
+customParams =
+  [ ("speed", VF 1)
+  , ("gain", VF 1)
+  , ("cutoff", VF 0)
+  , ("pan", VF 0.5)
+  ]
+
+extractDirtParameters :: ParamMap -> [[OSC.OSCDatum]]
+extractDirtParameters payload = do
+  (key, _) <- customParams
+  return $ lookupF key payload
+  where
+      lookupF :: BS.ByteString -> ParamMap -> [OSC.OSCDatum]
       lookupF key map = case Map.lookup key map of
         Just (VF x) -> [OSC.OSC_S key, OSC.OSC_F (realToFrac x)]
         _ -> []
-    in
-      return $ event { payload= [OSC.OSC "/play2" values] }
-makeOSCEvents MkEvent{} = []
 
-sound :: BS.ByteString ->  Signal ParamMap -> Signal ParamMap
-sound s = const . embed $ Map.fromList
-  [ ("s", VS s)
-  , ("speed", VF 1)
-  ]
+dirt :: BS.ByteString ->  Signal ParamMap -> Signal ParamMap
+dirt s = const . embed $ Map.fromList $ [ ("s", VS s)] ++ customParams
 
 note :: Int -> Int -> Signal ParamMap -> Signal ParamMap
 note c p = const . embed $ Map.fromList [("channel", VI c), ("pitch", VI p)]
@@ -168,7 +169,7 @@ sigMod = let (>>) = (flip (.)) in do
     fast 8
 
   overlay $ do
-    sound "dr55"
+    dirt "dr55"
     s [smap (*x) | x <- [1..4]]
     s [ fast 2 . smap (/1.5), id]
 
@@ -181,4 +182,4 @@ sigMod = let (>>) = (flip (.)) in do
 
   s [pmap (const 127), id]
 
-  tt (1/16) $ s [id, vmap (+12)]
+  tt (1/6) $ s [id, vmap (+12)]

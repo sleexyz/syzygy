@@ -39,7 +39,6 @@ library
       Syzygy.Core
       Syzygy.MIDI
       Syzygy.OSC
-      Syzygy.ParamMap
       Syzygy.Signal
   other-modules:
       Paths_syzygy
@@ -68,7 +67,6 @@ executable syzygy-live
       Syzygy.Core
       Syzygy.MIDI
       Syzygy.OSC
-      Syzygy.ParamMap
       Syzygy.Signal
       Paths_syzygy
   default-language: Haskell2010
