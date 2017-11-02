@@ -31,7 +31,7 @@ listen clientName portName onReady eventHandler = SndSeq.withDefault SndSeq.Bloc
       event <- MIDIEvent.input h
       eventHandler event
 
-withMockMIDIServer :: CoreConfig' MIDIEvent.Data -> (TestContext -> IO a) -> IO a
+withMockMIDIServer :: CoreConfig_ MIDIEvent.Data -> (TestContext -> IO a) -> IO a
 withMockMIDIServer coreConfig continuation = do
   (isReadySem :: MVar ()) <- newEmptyMVar
   (midiEventRef :: MVar MIDIEvent.T) <- newEmptyMVar
@@ -49,8 +49,8 @@ withMockMIDIServer coreConfig continuation = do
   waitForReadyComputation
   clientThread <- forkIO $ do
     let mockMIDIConfig = MkMIDIConfig{midiPortName="Syzygy test port"}
-    backend <- makeMIDIBackend' mockMIDIConfig
-    runBackend (fromSimpleBackend' backend) coreConfig
+    backend <- makeMIDISendTimestampedEvents mockMIDIConfig
+    runBackend (fromSendTimestampedEvents backend) coreConfig
   let
     onEvent :: (MIDIEvent.T -> IO a) -> IO a
     onEvent handleEvent = do
@@ -81,7 +81,7 @@ isNoteEvent event = case MIDIEvent.body event of
   MIDIEvent.NoteEv _ _ -> True
   _ -> False
 
-makeDefaultCoreConfig :: IO (CoreConfig' MIDIEvent.Data)
+makeDefaultCoreConfig :: IO (CoreConfig_ MIDIEvent.Data)
 makeDefaultCoreConfig = do
   signalRef <- newMVar $ switch
     [ embed (makeNoteOnData 0 100)
@@ -95,7 +95,7 @@ makeDefaultCoreConfig = do
 
 spec :: Spec
 spec = do
-  describe "MIDI Backend'" $ do
+  describe "MIDI SendTimestampedEvents'" $ do
     it "sends MIDI events with the right notes" $ do
       coreConfig <- makeDefaultCoreConfig
       withMockMIDIServer coreConfig $ \MkTestContext{getNoteEvent} -> do

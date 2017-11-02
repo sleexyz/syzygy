@@ -1,5 +1,5 @@
 {-# LANGUAGE PatternSynonyms #-}
- 
+
 module Syzygy.Base where
 import Data.Map.Strict (Map)
 import qualified Data.ByteString as BS
@@ -24,7 +24,6 @@ mapVI :: (Int -> Int) -> Value -> Value
 mapVI f (VI x)  =  VI (f x)
 mapVI _ x  =  x
 
-type Backend = Backend' ParamMap
-type CoreConfig = CoreConfig' ParamMap
-type Env = Env' ParamMap
-
+type Backend = SendEvents ParamMap
+type CoreConfig = CoreConfig_ ParamMap
+type Env = Env_ ParamMap

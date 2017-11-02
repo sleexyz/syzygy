@@ -65,8 +65,8 @@ makeNoteOffData channel pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.si
 makeCtrlMessage :: Word8 -> Word8 -> MIDIEvent.Data
 makeCtrlMessage param value = MIDIEvent.CtrlEv MIDIEvent.Controller $ MIDIEvent.Ctrl (MIDIEvent.Channel 0) (MIDIEvent.Parameter $ fromIntegral param) (MIDIEvent.Value $ fromIntegral value)
 
-makeMIDIEnv' :: MIDIConfig -> (SimpleBackend' MIDIEvent.Data -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
+_makeMIDISendTimestampedEvents :: MIDIConfig -> (SendTimestampedEvents MIDIEvent.Data -> IO ()) -> IO ()
+_makeMIDISendTimestampedEvents MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
   sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
   sendEvents events = do
     let
@@ -84,11 +84,11 @@ makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ 
     Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
     continuation sendEvents
 
-makeMIDIBackend' :: MIDIConfig -> IO (SimpleBackend' MIDIEvent.Data)
-makeMIDIBackend' config = do
-  (envRef :: MVar (Maybe (SimpleBackend' MIDIEvent.Data))) <- newEmptyMVar
+makeMIDISendTimestampedEvents :: MIDIConfig -> IO (SendTimestampedEvents MIDIEvent.Data)
+makeMIDISendTimestampedEvents config = do
+  (envRef :: MVar (Maybe (SendTimestampedEvents MIDIEvent.Data))) <- newEmptyMVar
   void $ forkIO $ do
-    makeMIDIEnv' config $ \env -> do
+    _makeMIDISendTimestampedEvents config $ \env -> do
       putMVar envRef $ Just env
       forever (threadDelay 1000000000)
     putMVar envRef Nothing

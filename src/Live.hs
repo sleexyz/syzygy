@@ -9,7 +9,6 @@ import Data.Function ((&))
 import Prelude
 import Data.String
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
--- import qualified Vivid.OSC as OSC
 import qualified Vivid.OSC as OSC
 import qualified Data.Map.Strict as Map
 import qualified Data.ByteString as BS
@@ -52,7 +51,7 @@ makeBackend midiConfig oscConfig = do
 
 makeMIDIBackend :: MIDIConfig -> IO Backend
 makeMIDIBackend config = do
-  sendMIDIEvents <- makeMIDIBackend' config
+  sendMIDIEvents <- makeMIDISendTimestampedEvents config
   return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
     events
       & (>>=makeMIDIEvents)
@@ -74,21 +73,19 @@ makeMIDIEvents MkEvent{} = []
 
 makeOSCBackend :: OSCConfig -> IO Backend
 makeOSCBackend config = do
-  sendOSCEvents <- makeOSCBackend' config
+  sendOSCEvents <- makeOSCSendTimestampedEvents config
   return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
     events
       & (>>=makeOSCEvents)
       & fmap (makeTimestamp bpm beat clock)
       & sendOSCEvents
 
-      
-
 makeOSCEvents :: Event ParamMap -> [Event [OSC.OSC]]
 makeOSCEvents event@MkEvent{payload}
   | Just (VS sound) <- Map.lookup "s" payload
   = let
       values :: [OSC.OSCDatum]
-      values = mconcat 
+      values = mconcat
         [ [OSC.OSC_S "s", OSC.OSC_S sound]
         , lookupF "speed" payload
         ]
@@ -96,12 +93,12 @@ makeOSCEvents event@MkEvent{payload}
       lookupF key map = case Map.lookup key map of
         Just (VF x) -> [OSC.OSC_S key, OSC.OSC_F (realToFrac x)]
         _ -> []
-    in 
+    in
       return $ event { payload= [OSC.OSC "/play2" values] }
 makeOSCEvents MkEvent{} = []
 
 sound :: BS.ByteString ->  Signal ParamMap -> Signal ParamMap
-sound s = const . embed $ Map.fromList 
+sound s = const . embed $ Map.fromList
   [ ("s", VS s)
   , ("speed", VF 1)
   ]

@@ -8,32 +8,34 @@ import qualified System.Clock as Clock
 
 import Syzygy.Signal
 
-data CoreConfig' a = MkCoreConfig
+data CoreConfig_ a = MkCoreConfig
   { bpmRef :: MVar Int
   , signalRef :: MVar (Signal a)
   , beatRef :: MVar Rational
   }
 
-type SimpleBackend' a = [(Integer, a)] -> IO ()
+-- * Internal, parametrized type for backends
+type SendEvents a = Env_ a -> IO ()
 
-type Backend' a = Env' a -> IO ()
+-- * Internal, parameterized type for backends (Simplified)
+type SendTimestampedEvents a = [(Integer, a)] -> IO ()
 
-data Env' a = MkEnv
+data Env_ a = MkEnv
   { bpm :: Int
   , interval :: (Rational, Rational)
   , clock :: Integer
   , events :: [Event a]
   }
 
-fromSimpleBackend' :: forall a. SimpleBackend' a -> Backend' a
-fromSimpleBackend' sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+fromSendTimestampedEvents :: forall a. SendTimestampedEvents a -> SendEvents a
+fromSendTimestampedEvents sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
-_samplesPerBeat = 1
+_samplesPerBeat = 24
 
-runBackend :: forall a. Backend' a -> CoreConfig' a -> IO ()
-runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
+runBackend :: forall a. SendEvents a -> CoreConfig_ a -> IO ()
+runBackend sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
@@ -52,7 +54,7 @@ runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
     let
       events :: [Event a]
       events = signal (pruneSignal sig) interval
-    backend MkEnv{bpm, interval, clock, events}
+    sendEvents MkEnv{bpm, interval, clock, events}
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)

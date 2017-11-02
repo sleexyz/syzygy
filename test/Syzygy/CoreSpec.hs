@@ -16,12 +16,12 @@ data MockContext = MkMockContext
   , getNextNonEmptyBundle :: IO [(Integer, String)]
   }
 
-withMockBackend' :: CoreConfig' String -> (MockContext -> IO a) -> IO a
+withMockBackend' :: CoreConfig_ String -> (MockContext -> IO a) -> IO a
 withMockBackend' mockConfig cont = do
   spyChan <- newChan
   let
-    mockBackend' :: SimpleBackend' String
-    mockBackend' events = writeChan spyChan events
+    mockBackend :: SendTimestampedEvents String
+    mockBackend events = writeChan spyChan events
   let
     getEvents :: IO [(Integer, String)]
     getEvents = readChan spyChan
@@ -30,12 +30,12 @@ withMockBackend' mockConfig cont = do
     getNextNonEmptyBundle = getEvents
       & doUntil (\events -> length events > 0)
 
-  threadId <- forkIO $ runBackend (fromSimpleBackend' mockBackend') mockConfig
+  threadId <- forkIO $ runBackend (fromSendTimestampedEvents mockBackend) mockConfig
   result <- cont MkMockContext {getEvents, getNextNonEmptyBundle}
   killThread threadId
   return result
 
-makeDefaultConfig :: IO (CoreConfig' String)
+makeDefaultConfig :: IO (CoreConfig_ String)
 makeDefaultConfig = do
   bpmRef <- newMVar 120
   signalRef <- newMVar $ embed "hello"
