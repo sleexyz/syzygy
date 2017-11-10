@@ -1,7 +1,7 @@
 module Syzygy.OSC where
 
 import Data.Function ((&))
-import Control.Arrow (first)
+import Data.Bifunctor (first)
 import Control.Concurrent.MVar
 import qualified Data.ByteString as BS
 import qualified Network.Socket as Network

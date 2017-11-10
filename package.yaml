@@ -33,7 +33,7 @@ dependencies:
   - alsa-seq
   - foreign-store
   - clock
-  - containers
+  - unordered-containers
 
 library:
   source-dirs: src
@@ -42,6 +42,9 @@ executables:
   syzygy-live:
     source-dirs: src
     main: main.hs
+  osc-example:
+    source-dirs: src
+    main: osc-example.hs
 
 tests:
   syzygy-test:

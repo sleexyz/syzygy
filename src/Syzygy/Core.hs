@@ -30,7 +30,7 @@ liftTimestampedEventDispatcher sendTimestampedEvents MkEnv{bpm,interval=(beat, _
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
-_samplesPerBeat = 24
+_samplesPerBeat = 1
 
 runEventDispatcher :: forall a. EventDispatcher a -> CoreConfig_ a -> IO ()
 runEventDispatcher sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do

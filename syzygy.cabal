@@ -27,11 +27,11 @@ library
     , base >=4.7 && <5
     , bytestring
     , clock
-    , containers
     , foreign-store
     , network
     , profunctors
     , time
+    , unordered-containers
     , vivid-osc
   exposed-modules:
       Live
@@ -41,6 +41,33 @@ library
       Syzygy.OSC
       Syzygy.Signal
   other-modules:
+      Paths_syzygy
+  default-language: Haskell2010
+
+executable osc-example
+  main-is: osc-example.hs
+  hs-source-dirs:
+      src
+  default-extensions: DeriveFunctor DuplicateRecordFields GeneralizedNewtypeDeriving NamedFieldPuns OverloadedStrings ScopedTypeVariables TypeApplications ViewPatterns MultiParamTypeClasses RankNTypes
+  build-depends:
+      alsa-core
+    , alsa-seq
+    , base >=4.7 && <5
+    , bytestring
+    , clock
+    , foreign-store
+    , network
+    , profunctors
+    , time
+    , unordered-containers
+    , vivid-osc
+  other-modules:
+      Live
+      Syzygy.Base
+      Syzygy.Core
+      Syzygy.MIDI
+      Syzygy.OSC
+      Syzygy.Signal
       Paths_syzygy
   default-language: Haskell2010
 
@@ -55,11 +82,11 @@ executable syzygy-live
     , base >=4.7 && <5
     , bytestring
     , clock
-    , containers
     , foreign-store
     , network
     , profunctors
     , time
+    , unordered-containers
     , vivid-osc
   other-modules:
       Live
@@ -85,7 +112,6 @@ test-suite syzygy-test
     , base >=4.7 && <5
     , bytestring
     , clock
-    , containers
     , foreign-store
     , hspec
     , hspec-expectations
@@ -93,6 +119,7 @@ test-suite syzygy-test
     , profunctors
     , syzygy
     , time
+    , unordered-containers
     , vivid-osc
   other-modules:
       Syzygy.CoreSpec

@@ -1,13 +1,13 @@
 {-# LANGUAGE PatternSynonyms #-}
 
 module Syzygy.Base where
-import Data.Map.Strict (Map)
+import Data.HashMap.Strict (HashMap)
 import qualified Data.ByteString as BS
 
 import Syzygy.Core
 
 
-type ParamMap = Map BS.ByteString Value
+type ParamMap = HashMap BS.ByteString Value
 
 data Value = VS BS.ByteString | VF Double | VI Int
   deriving (Show)
