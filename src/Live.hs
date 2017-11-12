@@ -347,7 +347,6 @@ sigMod_morning4 = let (>>) = (flip (.)) in do
 
   -- s [id, shift 0.5, shift 0.5, id] & tt (2)
   -- s [id, rep 2 . shift 0.5 . rep 2, i, rep 2 ] & tt 1
-
 sigMod :: Signal ParamMap -> Signal ParamMap
 sigMod = let (>>) = (flip (.)) in do
   i $ overlay $ do
@@ -360,41 +359,73 @@ sigMod = let (>>) = (flip (.)) in do
       s [vmap (+x) | x <- [0..3]] & tt (1/4)
 
     c [fast 2, c [fast 4, c [fast 4, i]]]
-    s [id, pmap (+(-24))] & tt (1)
-    -- s [slow 1.5]
-    -- s [i, i, shift 0.5, i] & tt (1)
+    s [id, pmap (+(-24))] & tt (3)
+    s [i, i, i, m] & tt (2)
+    s [slow 1.5]
+    s [m, m]
+    -- s [i, shift 0.5, shift 0.5, i] & tt (1)
 
-  nope $ overlay $ do
+  i $ overlay $ do
     note 2 (60)
     staccato
     staccato
-    fast 2
+    s [fast 2, fast 2] & tt (1/4)
     c [c [i, c [i, fast 2, i]], c[i, i, fast 2]]
-    pmap (+12)
+    -- pmap (+12)
     overlay $ do
       pmap (+12)
       shift 0.25
     overlay $ do
-      ctrl 0 101
+      s [ctrl 0 101, ctrl 0 20]
       s [vmap (+x) | x <- [0..3]] & tt (1/4)
+    s [m, m]
+    -- s [i, m, i, i] & tt 2
+    -- s [shift 1, pmap (+(-12))]
+    -- shift 1
+    -- -- s [pmap (subtract 12), i] & tt (1)
 
+  i $ overlay $ do
+    note 4 (60)
+    legato
+    fast 2
+    c [c [i, c [fast 2, i]], c[i, fast 2]]
+    -- pmap (+12)
+    overlay $ do
+      s [ctrl 0 (x) | x <- [100..103]] & tt (2/8)
+    s [shift 0.5, rep 1] & tt (1)
+    s [m, m]
+    -- s [i, m, i, m] & tt 2
 
-  -- s [pmap (+(-2)), i] & tt (1/32)
+  i $ overlay $ do
+    note 5 (60)
+    fast 4
+    s [pmap (+12), i] & tt (1/4)
+    s [slow 8, slow 4] & tt (1/8)
+    s [m, m]
+    -- s [m, m]
+    overlay $ do
+      -- s [ctrl 5 (x) | x <- [20..23]] & tt (1/4)
+      s [ctrl 5 (x) | x <- [20]] & tt (1/4)
+      -- vmap (+120)
+
+  overlay $ do
+    note 6 (60)
+    s [fast 1, fast 1] & tt (1/4)
+    fast 4
+    overlay $ do
+      s [ctrl 6 (x) | x <- [0, 71]]
+    -- s [i, shift 1, i, i]
+    s [shift 1, m] & tt (1)
+    shift 0.25
+
+  s [i, pmap (+(-2))] & tt (1/64)
 
   overlay $ do
     note 0 (0)
     shift 0.5
-
+    fast 1
     overlay $ do
-      note 1 (0)
-
-
-  -- s [fast 1, fast 2 . shift 0.5]
-
-  -- s [rep 1.5, id] & tt (1)
-  -- s [fast 1, fast 2] & tt (1)
-  -- s [fast 2, fast 1] & tt (1/2)
-  -- s [shift 0.5, id] & tt (1/4)
-
-  -- s [id, shift 0.5, shift 0.5, id] & tt (2)
-  -- s [id, rep 2 . shift 0.5 . rep 2, i, rep 2 ] & tt 1
+      note 1 0
+    fast 2 . s [i, shift 0.5, shift 0.5, i]
+  -- rep 2
+  s [id, id, shift 0.5, id] & tt (1)
