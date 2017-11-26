@@ -7,6 +7,7 @@ import Control.Monad
 import Control.Concurrent
 import Data.Function ((&))
 import Prelude
+import Control.Arrow ((>>>))
 import Data.String
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Vivid.OSC as OSC
@@ -157,6 +158,12 @@ vmap = fmap . (flip HashMap.adjust  "value") . mapVI
 
 nope :: (a -> a) -> (a -> a)
 nope _ y = y
+
+palindrome :: [a] -> [a]
+palindrome x = x ++ reverse x
+
+t :: [Signal a -> Signal a] -> Rational -> Signal a -> Signal a
+t xs n = s (fmap (& tt (n)) xs) & tt (recip n)
 
 sigMod_glidey :: Signal ParamMap -> Signal ParamMap
 sigMod_glidey = let (>>) = (flip (.)) in do
@@ -347,8 +354,8 @@ sigMod_morning4 = let (>>) = (flip (.)) in do
 
   -- s [id, shift 0.5, shift 0.5, id] & tt (2)
   -- s [id, rep 2 . shift 0.5 . rep 2, i, rep 2 ] & tt 1
-sigMod :: Signal ParamMap -> Signal ParamMap
-sigMod = let (>>) = (flip (.)) in do
+sigMod_morning4_final :: Signal ParamMap -> Signal ParamMap
+sigMod_morning4_final = let (>>) = (flip (.)) in do
   i $ overlay $ do
     note 3 (60)
     staccato
@@ -426,6 +433,98 @@ sigMod = let (>>) = (flip (.)) in do
     fast 1
     overlay $ do
       note 1 0
-    fast 2 . s [i, shift 0.5, shift 0.5, i]
+    -- fast 2 . s [i, shift 0.5, shift 0.5, i]
+    s [i, shift 0.5, shift 0.5, i] >>> fast 2
   -- rep 2
   s [id, id, shift 0.5, id] & tt (1)
+
+-- TODO: figure out pitch
+
+sigMod :: Signal ParamMap -> Signal ParamMap
+sigMod = let (>>) = (flip (.)) in do
+  id
+  id
+
+      -- s [i, shift 0.5, fast 2, rep 4]
+    -- s [i, shift 0.5, shift 0.5, slow 1] >>> fast 2
+    -- rep 2
+
+  overlay $ do
+    ctrl 1 0
+    s [vmap (+(x)) | x <- [20, 127]]
+    fast 4
+
+
+
+  overlay $ do
+    ctrl 60 (80)
+    s [vmap (+1), id] & tt (1/8)
+    s [vmap (+x) | x <- [1..4]]
+    vmap (+(-9))
+    m
+
+  -- s [i, shift 0.5, fast 2, i]
+  -- s [fast 2] & tt (1/2)
+
+  overlay $ do
+    ctrl 70 (20)
+    s [vmap (+x) | x <- [0..3]] & tt (1/4)
+    -- s [slow 2, i] & tt (1/16)
+    s [vmap (+12)] & tt (1/1)
+    shift 0.5
+    m
+    -- s [fast 2, fast 1] & tt (1/16)
+    -- s [i, shift 0.5, shift 0.5, i] & tt (1)
+    -- s [i, i, fast 2, i] & tt (1/2)
+
+
+
+  overlay $ do
+    overlay $ do
+      note 7 (60)
+      overlay $ do
+        s [ctrl 7 x | x <- [0..3]]
+      vmap (+100)
+      s[m, m]
+
+    overlay $ do
+      note 5 (60)
+      overlay $ do
+        s [ctrl 5 x | x <- [22]]
+      s [pmap (+12), i]
+
+
+    -- s [vmap (+2), i] & tt (1/4)
+
+    -- s [pmap (+x) | x <- [0,-2]] & tt (1/8)
+    -- s [pmap (+x) | x <- [0, -5]] & tt (1/4)
+    -- s [pmap (+x) | x <- [0, 7]] & tt (1/2)
+    pmap (+7)
+
+    -- overlay $ do
+    --   s [shift 0.5, m] & tt (4/3)
+
+    -- overlay $ do
+    --   s [pmap (+12), shift 0.5] & tt (4/3)
+
+  overlay $ do
+    ctrl 3 127
+    s [vmap (const x) | x <- palindrome [(127-16)..127]]
+    -- s [vmap (+(x*40)) | x <- [0..20]]
+    overlay $ do
+      ctrl 4 42
+      s [vmap (+x) | x <- [0,12]] & tt (1)
+
+
+  overlay $ do
+    note 0 (40)
+    s [pmap (+2) . t [fast 2, i] 4, i]
+    fast 2
+    s [pmap (+2), i]
+    s [i, pmap (+(-4)) . rep 1] & tt (1/2)
+    t [rep 1, i, rep 2, i] 4
+
+    -- t [shift 0.5, i] 4
+    -- s [fast 2, i, slow 2, i] & tt (2)
+
+  -- t [shift 0.5, i] 2
