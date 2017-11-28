@@ -1,3 +1,8 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Syzygy.Core where
 
 import Data.Function ((&))

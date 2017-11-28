@@ -9,19 +9,6 @@ category:            Other
 extra-source-files:
   - README.md
 
-default-extensions:
-  - DeriveFunctor
-  - DuplicateRecordFields
-  - GeneralizedNewtypeDeriving
-  - NamedFieldPuns
-  - OverloadedStrings
-  - ScopedTypeVariables
-  - TypeApplications
-  - ViewPatterns
-  - MultiParamTypeClasses
-  - RankNTypes
-
-
 dependencies:
   - base >= 4.7 && < 5
   - profunctors
@@ -37,14 +24,6 @@ dependencies:
 
 library:
   source-dirs: src
-
-executables:
-  syzygy-live:
-    source-dirs: src
-    main: main.hs
-  osc-example:
-    source-dirs: src
-    main: osc-example.hs
 
 tests:
   syzygy-test:

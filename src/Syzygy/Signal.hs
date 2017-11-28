@@ -1,4 +1,7 @@
 {-# LANGUAGE MultiWayIf #-}
+{-# LANGUAGE TypeApplications #-}
+{-# LANGUAGE DeriveFunctor #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 module Syzygy.Signal where
 
 import Data.Function ((&))

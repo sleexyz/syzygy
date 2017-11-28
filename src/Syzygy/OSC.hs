@@ -1,3 +1,7 @@
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Syzygy.OSC where
 
 import Data.Function ((&))
