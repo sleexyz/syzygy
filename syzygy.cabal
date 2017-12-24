@@ -39,7 +39,6 @@ library
       Syzygy.MIDI
       Syzygy.OSC
       Syzygy.Signal
-      Syzygy.Util
   other-modules:
       Paths_syzygy
   default-language: Haskell2010

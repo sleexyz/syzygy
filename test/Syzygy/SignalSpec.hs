@@ -1,6 +1,7 @@
 
 module Syzygy.SignalSpec where
 
+import Control.Arrow ((>>>))
 import Data.Monoid ((<>))
 import Test.Hspec
 import qualified Test.QuickCheck as QC
@@ -184,3 +185,20 @@ spec = do
           , MkEvent {interval=(2, 1), payload="a1"}
           , MkEvent {interval=(3, 1), payload="b1"}
           ]
+
+    describe "switch" $ do
+      let
+        with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
+        with cat mods sig = cat $ ($sig) <$> mods
+      let
+        s :: [Signal a -> Signal a] -> Signal a -> Signal a
+        s = with switch
+      let transform = s [fast 2] >>> s [slow 2]
+      let pat = embed ()
+      it "returns a balanced # of events for `fast 2; slow 2`" $ do
+        signal (transform pat) (0, 1) `shouldBe` [MkEvent (0, 1) ()]
+        signal (transform pat) (1, 1) `shouldBe` [MkEvent (1, 1) ()]
+
+      it "returns a balanced # of events for `slow 2; fast 2`" $ do
+        signal (transform pat) (0, 1) `shouldBe` [MkEvent (0, 1) ()]
+        signal (transform pat) (1, 1) `shouldBe` [MkEvent (1, 1) ()]

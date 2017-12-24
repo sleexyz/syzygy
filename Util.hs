@@ -68,11 +68,14 @@ tt i mod sig = sig
   & mod
   & fast i
 
-overlay :: (Signal a -> Signal a) -> (Signal a -> Signal a)
-overlay f = with mconcat [id, f]
+add :: (Signal a -> Signal a) -> (Signal a -> Signal a)
+add f = with mconcat [id, f]
 
 rep :: Rational ->  Signal a -> Signal a
 rep n = tt n $ with switch [id, shift 1 ]
+
+stac :: Rational -> Signal a -> Signal a
+stac n sig = sig & (mapInterval . mapDur) (/n)
 
 staccato :: Signal a -> Signal a
 staccato sig = sig & (mapInterval . mapDur) (/2)
@@ -104,8 +107,8 @@ nope _ y = y
 palindrome :: [a] -> [a]
 palindrome x = x ++ reverse x
 
-t :: [Signal a -> Signal a] -> Rational -> Signal a -> Signal a
-t xs n = s (fmap (& tt (n)) xs) & tt (recip n)
+t :: Rational -> [Signal a -> Signal a] -> Signal a -> Signal a
+t n xs = s (fmap (& tt (n)) xs) & tt (recip n)
 
 m :: Monoid a => a
 m = mempty

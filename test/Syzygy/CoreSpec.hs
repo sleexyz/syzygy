@@ -1,3 +1,4 @@
+{-# LANGUAGE NamedFieldPuns #-}
 module Syzygy.CoreSpec where
 
 import Test.Hspec
