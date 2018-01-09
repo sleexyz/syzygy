@@ -1,3 +1,6 @@
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Syzygy.MIDI where
 
 import Control.Concurrent
@@ -56,14 +59,17 @@ stamp address queue nanosecs body = (MIDIEvent.simple address body)
   , MIDIEvent.time = ALSATime.consAbs $ ALSATime.Real $ ALSARealTime.fromInteger nanosecs
   }
 
-makeNoteOnData :: Word8 -> MIDIEvent.Data
-makeNoteOnData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
+makeNoteOnData :: Word8 -> Word8 -> MIDIEvent.Data
+makeNoteOnData channel pitch = MIDIEvent.NoteEv MIDIEvent.NoteOn (MIDIEvent.simpleNote (MIDIEvent.Channel channel) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 255))
 
-makeNoteOffData :: Word8 -> MIDIEvent.Data
-makeNoteOffData pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel 0) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
+makeNoteOffData :: Word8 -> Word8 -> MIDIEvent.Data
+makeNoteOffData channel pitch = MIDIEvent.NoteEv MIDIEvent.NoteOff (MIDIEvent.simpleNote (MIDIEvent.Channel channel) (MIDIEvent.Pitch pitch) (MIDIEvent.Velocity 0))
 
-makeMIDIEnv' :: MIDIConfig -> (SimpleBackend MIDIEvent.Data -> IO ()) -> IO ()
-makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
+makeCtrlMessage :: Word8 -> Word8 -> MIDIEvent.Data
+makeCtrlMessage param value = MIDIEvent.CtrlEv MIDIEvent.Controller $ MIDIEvent.Ctrl (MIDIEvent.Channel 0) (MIDIEvent.Parameter $ fromIntegral param) (MIDIEvent.Value $ fromIntegral value)
+
+_makeMIDITimestampedEventDispatcher :: MIDIConfig -> (TimestampedEventDispatcher MIDIEvent.Data -> IO ()) -> IO ()
+_makeMIDITimestampedEventDispatcher MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ \h address queue -> let
   sendEvents :: [(Integer, MIDIEvent.Data)] -> IO ()
   sendEvents events = do
     let
@@ -81,11 +87,11 @@ makeMIDIEnv' MkMIDIConfig{midiPortName} continuation = connectTo midiPortName $ 
     Queue.control h queue (MIDIEvent.QueueSetPosTime $ ALSARealTime.fromInteger now) Nothing
     continuation sendEvents
 
-makeMIDIBackend :: MIDIConfig -> IO (SimpleBackend MIDIEvent.Data)
-makeMIDIBackend config = do
-  (envRef :: MVar (Maybe (SimpleBackend MIDIEvent.Data))) <- newEmptyMVar
+makeMIDITimestampedEventDispatcher :: MIDIConfig -> IO (TimestampedEventDispatcher MIDIEvent.Data)
+makeMIDITimestampedEventDispatcher config = do
+  (envRef :: MVar (Maybe (TimestampedEventDispatcher MIDIEvent.Data))) <- newEmptyMVar
   void $ forkIO $ do
-    makeMIDIEnv' config $ \env -> do
+    _makeMIDITimestampedEventDispatcher config $ \env -> do
       putMVar envRef $ Just env
       forever (threadDelay 1000000000)
     putMVar envRef Nothing

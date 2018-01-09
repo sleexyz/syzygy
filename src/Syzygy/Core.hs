@@ -1,3 +1,8 @@
+{-# LANGUAGE RankNTypes #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+
 module Syzygy.Core where
 
 import Data.Function ((&))
@@ -8,32 +13,32 @@ import qualified System.Clock as Clock
 
 import Syzygy.Signal
 
-data CoreConfig a = MkCoreConfig
+data CoreConfig_ a = MkCoreConfig
   { bpmRef :: MVar Int
   , signalRef :: MVar (Signal a)
   , beatRef :: MVar Rational
   }
 
-type SimpleBackend a = [(Integer, a)] -> IO ()
+type EventDispatcher a = Env_ a -> IO ()
 
-type Backend a = Env a -> IO ()
+type TimestampedEventDispatcher a = [(Integer, a)] -> IO ()
 
-data Env a = MkEnv
+data Env_ a = MkEnv
   { bpm :: Int
   , interval :: (Rational, Rational)
   , clock :: Integer
   , events :: [Event a]
   }
 
-fromSimpleBackend :: forall a. SimpleBackend a -> Backend a
-fromSimpleBackend sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
+liftTimestampedEventDispatcher :: forall a. TimestampedEventDispatcher a -> EventDispatcher a
+liftTimestampedEventDispatcher sendTimestampedEvents MkEnv{bpm,interval=(beat, _),clock,events} = sendTimestampedEvents $ events
   & fmap (makeTimestamp bpm beat clock)
 
 _samplesPerBeat :: Num a => a
-_samplesPerBeat = 24
+_samplesPerBeat = 1
 
-runBackend :: forall a. Backend a -> CoreConfig a -> IO ()
-runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
+runEventDispatcher :: forall a. EventDispatcher a -> CoreConfig_ a -> IO ()
+runEventDispatcher sendEvents MkCoreConfig{bpmRef, signalRef, beatRef} = do
   clockRef <- newMVar =<< Clock.toNanoSecs <$> Clock.getTime Clock.Realtime
   forever $ do
     bpm <- readMVar bpmRef
@@ -52,7 +57,7 @@ runBackend backend MkCoreConfig{bpmRef, signalRef, beatRef} = do
     let
       events :: [Event a]
       events = signal (pruneSignal sig) interval
-    backend MkEnv{bpm, interval, clock, events}
+    sendEvents MkEnv{bpm, interval, clock, events}
     waitTil (clock + clockOffset)
 
 makeTimestamp :: Int -> Rational -> Integer -> Event a -> (Integer, a)

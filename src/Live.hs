@@ -1,44 +1,41 @@
 {-# LANGUAGE LambdaCase #-}
 {-# LANGUAGE RebindableSyntax #-}
+{-# LANGUAGE PatternGuards #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE ViewPatterns #-}
+{-# LANGUAGE DuplicateRecordFields #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Live where
 
 import Control.Monad
-import Data.Bifunctor
 import Control.Concurrent
-import Data.Word (Word8)
 import Data.Function ((&))
 import Prelude
+import Control.Arrow ((>>>))
 import Data.String
 import qualified Sound.ALSA.Sequencer.Event as MIDIEvent
 import qualified Vivid.OSC as OSC
+import qualified Data.HashMap.Strict as HashMap
+import qualified Data.ByteString as BS
 
 import Syzygy.Core
+import Syzygy.Base
 import Syzygy.Signal
 import Syzygy.MIDI
+import Syzygy.OSC
 
-setup :: IO (CoreConfig Word8)
+setup :: IO CoreConfig
 setup = do
   signalRef <- newMVar mempty
   beatRef <- newMVar 0
-  bpmRef <- newMVar 120
+  bpmRef <- newMVar 160
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  midiBackend <- makeEasyMIDIBackend MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
-  _ <- forkIO $ runBackend midiBackend coreConfig
+  midiDispatcher <- makeMIDIDispatcher MkMIDIConfig { midiPortName = "VirMIDI 2-0"}
+  -- oscDispatcher <- makeOSCDispatcher MkOSCConfig { portNumber = 57120}
+  -- _ <- forkIO $ runDispatcher (midiDispatcher `composeDispatcher` oscDispatcher) coreConfig
+  _ <- forkIO $ runDispatcher (midiDispatcher) coreConfig
   return coreConfig
-
-makeEasyMIDIBackend :: MIDIConfig -> IO (Backend Word8)
-makeEasyMIDIBackend config = do
-  midiBackend <- makeMIDIBackend config
-  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> events
-    & (>>=makeNoteEvents)
-    & fmap (makeTimestamp bpm beat clock)
-    & midiBackend
-  where
-    makeNoteEvents :: Event Word8 -> [Event MIDIEvent.Data]
-    makeNoteEvents MkEvent{interval=(start, dur), payload} =
-      [ MkEvent {interval=(start, 0), payload=makeNoteOnData payload}
-      , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData payload}
-      ]
 
 main :: IO ()
 main = do
@@ -47,11 +44,80 @@ main = do
   modifyMVar_ signalRef $ const . return $ mempty
     & sigMod
 
+composeDispatcher :: Dispatcher -> Dispatcher -> Dispatcher
+composeDispatcher b1 b2 env = do
+  b1 env
+  b2 env
+
+makeMIDIDispatcher :: MIDIConfig -> IO Dispatcher
+makeMIDIDispatcher config = do
+  sendMIDIEvents <- makeMIDITimestampedEventDispatcher config
+  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
+    events
+      & (>>=makeMIDIEvents)
+      & fmap (makeTimestamp bpm beat clock)
+      & sendMIDIEvents
+
+makeMIDIEvents :: Event ParamMap -> [Event MIDIEvent.Data]
+makeMIDIEvents MkEvent{interval=(start, dur), payload}
+  | Just (VI (fromIntegral -> channel)) <- HashMap.lookup "channel" payload
+  , Just (VI (fromIntegral -> pitch)) <- HashMap.lookup "pitch" payload
+  = [ MkEvent {interval=(start, 0), payload=makeNoteOnData channel pitch}
+    , MkEvent {interval=(start + dur, 0), payload=makeNoteOffData channel pitch}
+    ]
+makeMIDIEvents MkEvent{interval=(start,_), payload}
+  | Just (VI (fromIntegral -> param)) <- HashMap.lookup "param" payload
+  , Just (VI (fromIntegral -> value)) <- HashMap.lookup "value" payload
+  = return $ MkEvent {interval=(start, 0), payload=makeCtrlMessage param value}
+makeMIDIEvents MkEvent{} = []
+
+makeOSCDispatcher :: OSCConfig -> IO Dispatcher
+makeOSCDispatcher config = do
+  sendOSCEvents <- makeOSCTimestampedEventDispatcher config
+  return $ \MkEnv{bpm, interval=(beat, _),clock, events} -> do
+    events
+      & (>>=makeOSCEvents)
+      & fmap (makeTimestamp bpm beat clock)
+      & sendOSCEvents
+
+makeOSCEvents :: Event ParamMap -> [Event [OSC.OSC]]
+makeOSCEvents event@MkEvent{payload}
+  | Just (VS sound) <- HashMap.lookup "s" payload
+  = let
+      values :: [OSC.OSCDatum]
+      values = mconcat ([ [OSC.OSC_S "s", OSC.OSC_S sound]] ++ extractDirtParameters payload)
+    in
+      return $ event { payload = [OSC.OSC "/play2" values] }
+makeOSCEvents MkEvent{} = []
+
+customParams :: [(BS.ByteString, Value)]
+customParams =
+  [ ("speed", VF 1)
+  , ("gain", VF 1)
+  , ("pan", VF 0.5)
+  ]
+
+extractDirtParameters :: ParamMap -> [[OSC.OSCDatum]]
+extractDirtParameters payload = do
+  (key, _) <- customParams
+  return $ lookupF key payload
+  where
+      lookupF :: BS.ByteString -> ParamMap -> [OSC.OSCDatum]
+      lookupF key map = case HashMap.lookup key map of
+        Just (VF x) -> [OSC.OSC_S key, OSC.OSC_F (realToFrac x)]
+        _ -> []
+
+dirt :: BS.ByteString ->  Signal ParamMap -> Signal ParamMap
+dirt s = const . embed $ HashMap.fromList $ [ ("s", VS s)] ++ customParams
+
+note :: Int -> Int -> Signal ParamMap -> Signal ParamMap
+note c p = const . embed $ HashMap.fromList [("channel", VI c), ("pitch", VI p)]
+
+ctrl :: Int -> Int -> Signal ParamMap -> Signal ParamMap
+ctrl c v = const . embed $ HashMap.fromList [("param", VI c), ("value", VI v)]
 
 with :: Functor f => (f a -> a) -> f (a -> a) -> a -> a
 with cat mods sig = cat $ ($sig) <$> mods
-
-infixl 4 `tt`
 
 tt :: Rational -> (Signal a -> Signal a) -> Signal a -> Signal a
 tt i mod sig = sig
@@ -65,15 +131,14 @@ fracture n f = foldr (flip (.)) id ([tt (1/(2^i)) f | i <- [0..n]])
 overlay :: (Signal a -> Signal a) -> (Signal a -> Signal a)
 overlay f = with mconcat [id, f]
 
-filterSig :: (a -> Bool) -> Signal a -> Signal a
-filterSig pred sig = MkSignal $ \query -> signal sig query
-  & filter (\MkEvent{payload}-> pred payload)
+rep :: Rational ->  Signal a -> Signal a
+rep n = tt n $ with switch [id, shift 1 ]
 
 staccato :: Signal a -> Signal a
-staccato sig = sig & (mapInterval . mapDur) (/4)
+staccato sig = sig & (mapInterval . mapDur) (/2)
 
 legato:: Signal a -> Signal a
-legato sig = sig & (mapInterval . mapDur) (*4)
+legato sig = sig & (mapInterval . mapDur) (*2)
 
 s :: [Signal a -> Signal a] -> Signal a -> Signal a
 s = with switch
@@ -84,109 +149,408 @@ c = with cat
 n :: [Signal a -> Signal a] -> Signal a -> Signal a
 n = with nest
 
-m :: [Signal a -> Signal a] -> Signal a -> Signal a
-m = with mconcat
+-- m :: [Signal a -> Signal a] -> Signal a -> Signal a
+-- m = with mconcat
 
-ml :: (Functor f, Bifunctor g) => (a -> a) -> f (g a b) -> f (g a b)
-ml = fmap . first
+pmap :: (Int -> Int) -> (Signal ParamMap -> Signal ParamMap)
+pmap = fmap . ((flip HashMap.adjust  "pitch") . mapVI)
 
-mr :: (Functor f, Bifunctor g) => (b -> b) -> f (g a b) -> f (g a b)
-mr = fmap . second
+smap :: (Double -> Double) -> (Signal ParamMap -> Signal ParamMap)
+smap = fmap . ((flip HashMap.adjust  "speed") . mapVF)
 
-rgb :: Float -> Float -> Float -> [OSC.OSC]
-rgb r g b =
-  [ OSC.OSC "/1/fader1" [OSC.OSC_F r]
-  , OSC.OSC "/1/fader2" [OSC.OSC_F g]
-  , OSC.OSC "/1/fader3" [OSC.OSC_F b]
-  ]
+vmap :: (Int -> Int) -> (Signal ParamMap -> Signal ParamMap)
+vmap = fmap . (flip HashMap.adjust  "value") . mapVI
 
-ttsml :: Rational -> [Word8] -> Signal (Either Word8 b) -> Signal (Either Word8 b)
-ttsml x fs = tt x $ with switch (fs & fmap (\x -> ml (+x)))
+nope :: (a -> a) -> (a -> a)
+nope _ y = y
 
-tts :: Rational -> [Signal Word8 -> Signal Word8] -> Signal Word8 -> Signal Word8
-tts x fs = tt x $ with switch fs
+palindrome :: [a] -> [a]
+palindrome x = x ++ reverse x
 
-ttsf :: Rational -> [Word8] -> Signal Word8 -> Signal Word8
-ttsf x fs = tt x $ with switch (fs & fmap  (\x -> fmap (+x)))
+t :: [Signal a -> Signal a] -> Rational -> Signal a -> Signal a
+t xs n = s (fmap (& tt (n)) xs) & tt (recip n)
 
-rep :: Rational ->  Signal a -> Signal a
-rep n = tt n $ with switch [id, shift 1 ]
-
-
-tc :: Rational -> [Signal a -> Signal a] -> Signal a -> Signal a
-tc n fs = tt (1/n) $ with cat $ fmap (\f -> tt n f) fs
-
-glisten :: Signal Word8 -> Signal Word8
-glisten = fmap $ \x -> (x + ((x `mod` 4) * 12))
-
-sigMod1 :: Signal Word8 -> Signal Word8
-sigMod1 = let (>>) = (flip (.)) in do
-  const (embed $ 60)
-  staccato
-  fast 4
-  tt (2) $ do
-    ttsf 2 [0, 3, 10, 12]
-    ttsf (1/8) [17, 12, 10, 12]
-    ttsf (1/2) [-12,-24]
-
-sigMod2 :: Signal Word8 -> Signal Word8
-sigMod2 = let (>>) = (flip (.)) in do
-  const (embed $ 48)
-  fmap (+24)
-  fast 4
-  -- tc (4) $
-  --   [ ttsf 2 [-27, 0, -1, 7]
-  --   , ttsf 2 [-27, -1, -8, 7]
-  --   ]
-  -- tts (1) [id, id, fmap (+(12)), id]
-  -- tts (1/16) [id, fmap (+(-12))]
-  -- tts (1/32) [id, fmap (+(-2))]
-
-
-sigMod3 :: Signal Word8 -> Signal Word8
-sigMod3 = let (>>) = (flip (.)) in do
-  const (embed 60)
-  tts 1 [ fmap (+(x)) | x <- [0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  fast 6
-  tts (2) [ fmap (+(x)) | x <- [0, 0, 0, 0, 0,0, 12]]
+sigMod_glidey :: Signal ParamMap -> Signal ParamMap
+sigMod_glidey = let (>>) = (flip (.)) in do
   overlay $ do
-    const (embed 36)
-  --   s [fmap (+0), fmap (+2), fmap (+7), fmap (subtract 5)] & tt (1/16)
-  -- fmap (+(-24))
+    note 0 (60)
 
-sigMod4 :: Signal Word8 -> Signal Word8
-sigMod4 = let (>>) = (flip (.)) in do
-  const (embed 48)
-  -- tts 1 [ fmap (+(x)) | x <- [0, 4, 7, 11, 16, 18, 19, 21, 23]]
-  s [ fmap (+(x)) | x <- [0, 3, 10, 12, 19, 3]]
-  fast 4
-  tt 2 $ s [id, fmap (+12)]
+  overlay $ do
+    ctrl 1 60
+    tt (8) $ s [vmap (+(x*12)) | x <- [0..7]]
+    fast 1
+    s [vmap (+24), vmap (+12), id] & tt (1/16)
+
+
+  overlay $ do
+    dirt "clubkick"
+    s [smap (*(2**((x)/12))) | x <- [12, 24, 60]]
+    fast 4
+    s [smap (/2), id] & tt 1
+
+  overlay $ do
+    note 2 (30)
+
+  s [id, id, shift 0.5, id]
+
+sigMod_morning :: Signal ParamMap -> Signal ParamMap
+sigMod_morning = let (>>) = (flip (.)) in do
+  overlay $ do
+    note 0 (60)
+    fast 2
+    s [pmap (+(0)), pmap (+12)]
+
+  overlay $ do
+    ctrl 1 60
+    tt (1) $ s [vmap (+(x*12)) | x <- [0..3]]
+    s [vmap (+12), vmap (+12)] & tt (1/16)
+
+
+  overlay $ do
+    dirt "click"
+    s [smap (*(2**((x)/12))) | x <- [12, 24, 60]]
+    fast 2
+    s [smap (/2), id] & tt 1
+    shift 2.5
+
+  overlay $ do
+    note 2 (30)
+    fast 2
+
+  overlay $ do
+    note 1 (30)
+    fast 4
+
+  s [id, shift 0.5, shift 0.5 . pmap (subtract 12) . smap (+24), id] & tt 2
+  -- pmap (+(-12))
+  -- vmap (+(-24))
+
+sinr :: Integral a => a -> a -> a -> a
+sinr x (fromIntegral -> min) (fromIntegral -> max) = floor $ amp * sin (2 * pi * fromIntegral x / 360) + avg
+  where
+    amp = (max - min) / 2
+    avg = (max + min) / 2
+
+sigMod_morning2 :: Signal ParamMap -> Signal ParamMap
+sigMod_morning2 = let (>>) = (flip (.)) in do
+  overlay $ do
+    note 0 (60)
+    -- s [fast 1, fast 2] & tt (1)
+    s [id, pmap (+12)] & tt (1/32)
+    -- s [id, shift 0.5] & tt (1/6)
+    -- slow 1.5
+
+
+  overlay $ do
+    ctrl 0 120
+    -- ctrl 0 200
+    s [vmap (+0), vmap (+4)] & tt (1/8)
+    fast 127
+
+  overlay $ do
+    note 1 (0)
+    shift 0.5
+
+  overlay $ do
+    note 2 (0)
+  -- s [id, shift 0.5, shift 0.5, id] & tt 2
+  -- s [id, shift 0.25 . rep 4 ] & tt 1
+
+m :: Monoid a => a
+m = mempty
+
+i :: a -> a
+i = id
+
+sigMod_morning3 :: Signal ParamMap -> Signal ParamMap
+sigMod_morning3 = let (>>) = (flip (.)) in do
+  nope $ overlay $ do
+    note 3 (60)
+    legato
+    legato
+    pmap (+24)
+    s [fast 2, pmap (subtract 12), shift 0.5, i] & tt (1)
+    -- s [slow 1.5, i]
+
+    overlay $ do
+      s [ctrl 0 120, ctrl 0 20] & tt (1)
+      s [vmap (+x) | x <- [0..3]] & tt (1/4)
+
+    -- s [i, i, shift 0.5, i] & tt (1)
+
+  nope $ overlay $ do
+    note 2 (60)
+    s [pmap (+x) | x <- [0, 5]]
+    s [pmap (+x) | x <- [0, 0, 12]] & tt (1/2)
+    s [pmap (+x) | x <- [0,-2]] & tt (1.5)
+    slow 2
+    overlay $ do
+      ctrl 0 95
+      s [vmap (+x) | x <- [0..3]]
+      fast 8
+
+  -- s [pmap (+(-2)), i] & tt (1/32)
+
   -- overlay $ do
-  --   const (embed (120))
+  --   note 0 (0)
+  --   shift 0.5
 
-sigMod5 :: Signal Word8 -> Signal Word8
-sigMod5 = let (>>) = (flip (.)) in do
-  const (embed 48)
-  s [fast 4]
-  fmap (+24)
-  tt 4 $ c [fmap (+3), fmap (+0)]
-  tt 4 $ s [fmap (+0), fmap (+2), fmap (+0)]
+  --   overlay $ do
+  --     note 1 (0)
+
+
+  -- s [fast 1, fast 2 . shift 0.5]
+
+  -- s [rep 1.5, id] & tt (1)
+  -- s [fast 1, fast 2] & tt (1)
+  -- s [fast 2, fast 1] & tt (1/2)
+  -- s [shift 0.5, id] & tt (1/4)
+
+  -- s [id, shift 0.5, shift 0.5, id] & tt (2)
+  -- s [id, rep 2 . shift 0.5 . rep 2, i, rep 2 ] & tt 1
+
+sigMod_morning4 :: Signal ParamMap -> Signal ParamMap
+sigMod_morning4 = let (>>) = (flip (.)) in do
+  i $ overlay $ do
+    note 3 (60)
+    staccato
+    pmap (+24)
+
+    overlay $ do
+      s [ctrl 0 120, ctrl 0 20] & tt (1)
+      s [vmap (+x) | x <- [0..3]] & tt (1/4)
+
+    c [fast 2, c [fast 4, c [fast 4, i]]]
+    s [id, pmap (+(-24))] & tt (1)
+    -- s [slow 1.5]
+    -- s [i, i, shift 0.5, i] & tt (1)
+
+  nope $ overlay $ do
+    note 2 (60)
+    staccato
+    staccato
+    fast 2
+    c [c [i, c [i, fast 2, i]], c[i, i, fast 2]]
+    pmap (+12)
+    overlay $ do
+      pmap (+12)
+      shift 0.25
+    overlay $ do
+      ctrl 0 101
+      s [vmap (+x) | x <- [0..3]] & tt (1/4)
+
+
+  -- s [pmap (+(-2)), i] & tt (1/32)
+
   overlay $ do
-    const $ embed 24
-    -- tt (1/16) $ s [id, fmap (+(-2)), fmap (+(-4)), fmap (+(-7))]
-    -- overlay $ do
-    --   fmap (+12)
-    -- overlay $ do
-    --   fmap (+(7)) . shift 0.5
-    -- s [fmap (+12), fmap (+24)]
-    -- overlay $ s [tt (1/16) $ s [fmap (+10), fmap (+10), fmap (+14), fmap (+14)], fmap (+24)] . shift 0.5
+    note 0 (0)
+    shift 0.5
 
-sigMod :: Signal Word8 -> Signal Word8
+    overlay $ do
+      note 1 (0)
+
+
+  -- s [fast 1, fast 2 . shift 0.5]
+
+  -- s [rep 1.5, id] & tt (1)
+  -- s [fast 1, fast 2] & tt (1)
+  -- s [fast 2, fast 1] & tt (1/2)
+  -- s [shift 0.5, id] & tt (1/4)
+
+  -- s [id, shift 0.5, shift 0.5, id] & tt (2)
+  -- s [id, rep 2 . shift 0.5 . rep 2, i, rep 2 ] & tt 1
+sigMod_morning4_final :: Signal ParamMap -> Signal ParamMap
+sigMod_morning4_final = let (>>) = (flip (.)) in do
+  i $ overlay $ do
+    note 3 (60)
+    staccato
+    pmap (+24)
+
+    overlay $ do
+      s [ctrl 0 120, ctrl 0 20] & tt (1)
+      s [vmap (+x) | x <- [0..3]] & tt (1/4)
+
+    c [fast 2, c [fast 4, c [fast 4, i]]]
+    s [id, pmap (+(-24))] & tt (3)
+    s [i, i, i, m] & tt (2)
+    s [slow 1.5]
+    s [m, m]
+    -- s [i, shift 0.5, shift 0.5, i] & tt (1)
+
+  i $ overlay $ do
+    note 2 (60)
+    staccato
+    staccato
+    s [fast 2, fast 2] & tt (1/4)
+    c [c [i, c [i, fast 2, i]], c[i, i, fast 2]]
+    -- pmap (+12)
+    overlay $ do
+      pmap (+12)
+      shift 0.25
+    overlay $ do
+      s [ctrl 0 101, ctrl 0 20]
+      s [vmap (+x) | x <- [0..3]] & tt (1/4)
+    s [m, m]
+    -- s [i, m, i, i] & tt 2
+    -- s [shift 1, pmap (+(-12))]
+    -- shift 1
+    -- -- s [pmap (subtract 12), i] & tt (1)
+
+  i $ overlay $ do
+    note 4 (60)
+    legato
+    fast 2
+    c [c [i, c [fast 2, i]], c[i, fast 2]]
+    -- pmap (+12)
+    overlay $ do
+      s [ctrl 0 (x) | x <- [100..103]] & tt (2/8)
+    s [shift 0.5, rep 1] & tt (1)
+    s [m, m]
+    -- s [i, m, i, m] & tt 2
+
+  i $ overlay $ do
+    note 5 (60)
+    fast 4
+    s [pmap (+12), i] & tt (1/4)
+    s [slow 8, slow 4] & tt (1/8)
+    s [m, m]
+    -- s [m, m]
+    overlay $ do
+      -- s [ctrl 5 (x) | x <- [20..23]] & tt (1/4)
+      s [ctrl 5 (x) | x <- [20]] & tt (1/4)
+      -- vmap (+120)
+
+  overlay $ do
+    note 6 (60)
+    s [fast 1, fast 1] & tt (1/4)
+    fast 4
+    overlay $ do
+      s [ctrl 6 (x) | x <- [0, 71]]
+    -- s [i, shift 1, i, i]
+    s [shift 1, m] & tt (1)
+    shift 0.25
+
+  s [i, pmap (+(-2))] & tt (1/64)
+
+  overlay $ do
+    note 0 (0)
+    shift 0.5
+    fast 1
+    overlay $ do
+      note 1 0
+    -- fast 2 . s [i, shift 0.5, shift 0.5, i]
+    s [i, shift 0.5, shift 0.5, i] >>> fast 2
+  -- rep 2
+  s [id, id, shift 0.5, id] & tt (1)
+
+-- TODO: figure out pitch
+
+sigMod :: Signal ParamMap -> Signal ParamMap
 sigMod = let (>>) = (flip (.)) in do
-  const (embed 60)
-  s [ fmap (+(x)) | x <- [0, 3, 10, 12, 19, 3]]
-  s [fast 4]
-  tt (1/4) $ s [id, fmap (+12)]
-  tt (2/4) $ s [id, fmap (+12)]
-  tt (4/4) $ s [id, fmap (+12)]
-  glisten
+  id
+  id
+  overlay $ do
+    ctrl 1 127
+    s [vmap (+(x)) | x <- palindrome [120..127]]
+
+  overlay $ do
+    ctrl 60 (80)
+    s [vmap (+1), id] & tt (1/8)
+    s [vmap (+x) | x <- [1..4]]
+    vmap (+(-9))
+    m
+
+  -- s [i, shift 0.5, fast 2, i]
+
+  overlay $ do
+    ctrl 70 (20)
+    s [vmap (+x) | x <- [0..3]] & tt (1/4)
+    -- s [slow 2, i] & tt (1/16)
+    s [vmap (+12)] & tt (1/1)
+    shift 0.5
+    m
+    -- s [fast 2, fast 1] & tt (1/16)
+    -- s [i, shift 0.5, shift 0.5, i] & tt (1)
+    -- s [i, i, fast 2, i] & tt (1/2)
+
+
+
+  overlay $ do
+    overlay $ do
+      note 7 (60)
+      fast 2
+      overlay $ do
+        ctrl 7 0
+        s [vmap (+x) | x <- [0, 3]] & tt (1/4)
+        -- s [vmap (+x) | x <- [0, 1]] & tt (1/2)
+      vmap (+100)
+      overlay $ do
+        note 0 (38)
+        fast 2
+      -- vmap (+10)
+      -- s [shift 0.5, i]
+      -- slow 1.5
+      -- s [i, pmap (+7) . rep 1] & tt 2
+      -- s [i, pmap (subtract 2)] & tt (1/4)
+      -- s [i, pmap (subtract 5)] & tt (1/8)
+
+    -- nhk
+    overlay $ do
+      note 6 (60)
+      slow 4
+      overlay $ do
+        ctrl 6 60
+        s [vmap (+x) | x <- [6, 15]] & tt (1/16)
+      rep 1
+      rep 2
+      t [ shift 0.5 >>> rep 4, i] 2
+      s [m, m]
+
+    -- s [i, pmap (subtract 2)] & tt (1/8)
+    -- s [i, pmap (subtract 5)] & tt (1/4)
+
+    overlay $ do
+      note 5 (60)
+      overlay $ do
+        s [ctrl 5 x | x <- [22]]
+      s [pmap (+12), i]
+      s [vmap (+2), i] & tt (1/4)
+      s [vmap (+2), i] & tt (1/2)
+      s [i, vmap (+2)] & tt (1)
+      s [i, i]
+
+    t [shift 0.5, i] 8
+    -- t [fast 2, i, fast 2, i] 2
+
+    s [pmap (+x) | x <- [0,-2]] & tt (1/16)
+    -- s [pmap (+x) | x <- [0, -5]] & tt (1/4)
+    -- s [pmap (+x) | x <- [0, 12]] & tt (2)
+    -- pmap (+7)
+
+    -- overlay $ do
+    --   s [shift 0.5, m] & tt (4/3)
+      -- s [pmap (+12), i] & tt (4/3)
+
+  overlay $ do
+    ctrl 3 127
+    -- s [vmap (const x) | x <- palindrome [(127-16)..127]]
+    -- s [vmap (+(x*40)) | x <- [0,-1]]
+    -- fast 2
+    -- s [fast 4, i]
+
+  -- t [shift 0.5, i] 8
+  -- s [pmap (+12), shift 0.5, i, shift 0.5] & tt (1)
+
+  overlay $ do
+    note 0 (40)
+    -- s [i, overlay $ t [shift 0.25, i] 8]
+
+    overlay $ do
+      note 0 (47)
+      shift 0.5
+      slow 2
+
+    -- t [shift 0.5, i] 4
+  -- s [i, shift 1, i, shift 0.5] & tt (2)
+  -- s [i, t [shift 0.5 . fast 2, i] 2]
+  -- t [rep 1, i, rep 2, i] 4

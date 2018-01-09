@@ -1,3 +1,7 @@
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RankNTypes #-}
 module Syzygy.OSCSpec where
 
 import Control.Concurrent
@@ -46,8 +50,8 @@ withMockOSC defaultSignal bpm continuation = do
     signalRef <- newMVar defaultSignal
     beatRef <- newMVar 0
     let coreConfig = MkCoreConfig{bpmRef, signalRef, beatRef}
-    backend <- makeOSCBackend MkOSCConfig { portNumber }
-    clientThread <- forkIO $ runBackend (fromSimpleBackend backend) coreConfig
+    timestampedEventDispatcher <- makeOSCTimestampedEventDispatcher MkOSCConfig { portNumber }
+    clientThread <- forkIO $ runEventDispatcher (liftTimestampedEventDispatcher timestampedEventDispatcher) coreConfig
     let receiveOSCBundle bundleHandler = do
           bundleVal <- takeMVar bundleChan
           bundleHandler bundleVal
@@ -65,11 +69,11 @@ makeSuperDirtMessage sound = OSC "/play2" message
 
 spec :: Spec
 spec = do
-  describe "OSC backend" $ do
+  describe "OSC TimestampedEventDispatcher" $ do
     let bpm = 240
     let signal = nest [embed [makeSuperDirtMessage "bd"], embed [makeSuperDirtMessage "sn"]]
 
-    it "sends events with the right data" $ do
+    it "dispatches events with the right data" $ do
       withMockOSC signal bpm $ \MkTestContext{getMessage} -> do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "bd"])
@@ -77,7 +81,7 @@ spec = do
         message <- getMessage
         message `shouldBe` (OSC "/play2" [OSC_S "s", OSC_S "sn"])
 
-    it "sends events at the right tempo, with an average jitter of less than 500ns" $ do
+    it "dispatches events at the right tempo, with an average jitter of less than 500ns" $ do
       withMockOSC signal bpm $ \MkTestContext{getTimestamp} -> do
         deltas <- (sequence $ replicate 12 $ getTimestamp)
           & fmap (\timestamps -> zipWith diffTimestamp (tail timestamps) timestamps)
@@ -89,7 +93,7 @@ spec = do
           error = zipWith (\x y -> abs(x - y)) (repeat expectedTimeDifference) deltas
         mean error `shouldBeLessThan` 0.5e-6
 
-    it "sends events with timestamps with less than 2ms of latency" $ do
+    it "dispatches events with timestamps with less than 2ms of latency" $ do
       withMockOSC signal bpm $ \MkTestContext{getTimestamp} -> do
         timestamp <- getTimestamp
         now <- utcToTimestamp <$> Time.getCurrentTime

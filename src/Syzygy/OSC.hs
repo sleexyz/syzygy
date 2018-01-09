@@ -1,7 +1,11 @@
+{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Syzygy.OSC where
 
 import Data.Function ((&))
-import Control.Arrow (first)
+import Data.Bifunctor (first)
 import Control.Concurrent.MVar
 import qualified Data.ByteString as BS
 import qualified Network.Socket as Network
@@ -31,8 +35,8 @@ makeLocalUDPConnection portNumber = do
   Network.connect socket (Network.addrAddress a)
   return socket
 
-makeOSCBackend :: OSCConfig -> IO (SimpleBackend [OSC.OSC])
-makeOSCBackend MkOSCConfig{portNumber} = do
+makeOSCTimestampedEventDispatcher :: OSCConfig -> IO (TimestampedEventDispatcher [OSC.OSC])
+makeOSCTimestampedEventDispatcher MkOSCConfig{portNumber} = do
   socket <- makeLocalUDPConnection portNumber
   let
     sendEvents :: [ (Integer, [OSC.OSC]) ] -> IO ()
@@ -52,5 +56,5 @@ main = do
   beatRef <- newMVar 0
   let portNumber = 57120
   let coreConfig = MkCoreConfig { bpmRef, signalRef, beatRef }
-  backend <- makeOSCBackend MkOSCConfig { portNumber }
-  runBackend (fromSimpleBackend backend) coreConfig
+  timestampedEventDispatcher <- makeOSCTimestampedEventDispatcher MkOSCConfig { portNumber }
+  runEventDispatcher (liftTimestampedEventDispatcher timestampedEventDispatcher) coreConfig

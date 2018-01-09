@@ -9,19 +9,6 @@ category:            Other
 extra-source-files:
   - README.md
 
-default-extensions:
-  - DeriveFunctor
-  - DuplicateRecordFields
-  - GeneralizedNewtypeDeriving
-  - NamedFieldPuns
-  - OverloadedStrings
-  - ScopedTypeVariables
-  - TypeApplications
-  - ViewPatterns
-  - MultiParamTypeClasses
-  - RankNTypes
-
-
 dependencies:
   - base >= 4.7 && < 5
   - profunctors
@@ -33,14 +20,10 @@ dependencies:
   - alsa-seq
   - foreign-store
   - clock
+  - unordered-containers
 
 library:
   source-dirs: src
-
-executables:
-  syzygy-live:
-    source-dirs: src
-    main: main.hs
 
 tests:
   syzygy-test:
